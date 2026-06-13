@@ -70,7 +70,7 @@ export interface ChildState {
 }
 
 export interface AppState {
-  version: 2
+  version: 3
   children: Record<ChildId, ChildState>
 }
 
@@ -146,25 +146,25 @@ export interface ActionPreset {
 export const CHILDREN: Record<ChildId, ChildMeta> = {
   julia: {
     id: 'julia',
-    name: 'Julia',
-    description: 'Więcej zadań, własna skarbonka i szybkie plusy',
-    accent: '#ff8d7a',
-    accentSoft: '#fff0eb',
-    accentStrong: '#cf5b4a',
-    accentRing: 'rgba(255, 141, 122, 0.28)',
+    name: 'Julcia',
+    description: 'Spokojny rytm, ciepłe kolory i wyraźna skarbonka',
+    accent: '#2bbd9f',
+    accentSoft: '#e9fbf5',
+    accentStrong: '#167f6d',
+    accentRing: 'rgba(43, 189, 159, 0.24)',
   },
   oliwia: {
     id: 'oliwia',
-    name: 'Oliwia',
-    description: 'Codzienne nawyki, drobne nagrody i lepszy rytm',
-    accent: '#59b7ff',
-    accentSoft: '#eaf5ff',
-    accentStrong: '#257bc4',
-    accentRing: 'rgba(89, 183, 255, 0.28)',
+    name: 'Oliwcia',
+    description: 'Słoneczna karta, codzienne nawyki i szybkie nagrody',
+    accent: '#f5a623',
+    accentSoft: '#fff4de',
+    accentStrong: '#b97709',
+    accentRing: 'rgba(245, 166, 35, 0.24)',
   },
 }
 
-export const STORAGE_KEY = 'family-tasks-board:v2'
+export const STORAGE_KEY = 'family-tasks-board:v3'
 
 export const TASK_FREQUENCY_OPTIONS: Array<{
   value: TaskFrequency
@@ -174,6 +174,21 @@ export const TASK_FREQUENCY_OPTIONS: Array<{
   { value: 'once', label: 'Jednorazowe', detail: 'Wykonaj raz i zamknij.' },
   { value: 'daily', label: 'Codzienne', detail: 'Po wykonaniu tworzy nową instancję.' },
   { value: 'weekly', label: 'Tygodniowe', detail: 'Powraca po zakończeniu.' },
+]
+
+export const TASK_PRESETS: Array<{
+  title: string
+  description: string
+  reward: number
+  frequency: TaskFrequency
+}> = [
+  { title: 'Wypakowanie zmywarki', description: 'Wszystko na swoje miejsce.', reward: 5, frequency: 'daily' },
+  { title: 'Karmienie psa', description: 'Miseczka i woda gotowe na czas.', reward: 4, frequency: 'daily' },
+  { title: 'Sprzątanie pokoju', description: 'Porządek, podłoga i biurko.', reward: 6, frequency: 'daily' },
+  { title: 'Spacer z psem', description: 'Krótka, aktywna trasa na świeżym powietrzu.', reward: 5, frequency: 'weekly' },
+  { title: 'Układanie ubrań', description: 'Ubrania trafiają do właściwej szuflady.', reward: 4, frequency: 'weekly' },
+  { title: 'Roznoszenie prania', description: 'Pranie wędruje do odpowiednich pokoi.', reward: 4, frequency: 'weekly' },
+  { title: 'Segregowanie prania', description: 'Kolory, jasne i delikatne osobno.', reward: 5, frequency: 'weekly' },
 ]
 
 export const PLUS_PRESETS: ActionPreset[] = [
@@ -383,27 +398,27 @@ function buildChildState(args: {
 }
 
 function seedJuliaState(): ChildState {
-  const balance = 53
+  const balance = 58
   const now = nowIso()
   const tasks = [
-    createTask('julia', 'Posprzątanie pokoju', 'Odkurzenie podłogi i schowanie rzeczy.', 5, 'todo', 'daily', isoDaysAgo(0, 8)),
-    createTask('julia', 'Ścielenie łóżka', 'Rano po śniadaniu.', 3, 'done', 'daily', isoDaysAgo(1, 8), { completedAt: isoDaysAgo(1, 9) }),
-    createTask('julia', 'Karmienie kota', 'Miseczka rano i wieczorem.', 4, 'todo', 'daily', isoDaysAgo(2, 8)),
-    createTask('julia', 'Wyniesienie śmieci', 'Jedna szybka trasa do kosza.', 6, 'todo', 'weekly', isoDaysAgo(3, 8)),
-    createTask('julia', 'Przygotowanie plecaka', 'Zeszyty i bidon przed szkołą.', 6, 'todo', 'once', isoDaysAgo(4, 8)),
+    createTask('julia', 'Wypakowanie zmywarki', 'Szybko na suszarkę i do szafek.', 5, 'todo', 'daily', isoDaysAgo(0, 8)),
+    createTask('julia', 'Sprzątanie pokoju', 'Podłoga, biurko i łóżko.', 6, 'todo', 'daily', isoDaysAgo(1, 8)),
+    createTask('julia', 'Karmienie psa', 'Miseczka rano i wieczorem.', 4, 'done', 'daily', isoDaysAgo(2, 8), { completedAt: isoDaysAgo(2, 9) }),
+    createTask('julia', 'Spacer z psem', 'Krótka trasa po południu.', 5, 'todo', 'weekly', isoDaysAgo(3, 8)),
+    createTask('julia', 'Segregowanie prania', 'Kolory osobno, delikatne osobno.', 5, 'todo', 'weekly', isoDaysAgo(4, 8)),
   ]
 
   const savings = [
-    createSavingsEvent('julia', 'Ścielenie łóżka', 3, 'Codzienny obowiązek zaliczony.', 'task', isoDaysAgo(1, 9), tasks[1].id),
-    createSavingsEvent('julia', 'Pomoc przy kolacji', 10, 'Szybka pomoc bez przypominania.', 'manual', isoDaysAgo(2, 18)),
+    createSavingsEvent('julia', 'Karmienie psa', 4, 'Obowiązek zaliczony automatycznie po zatwierdzeniu.', 'task', isoDaysAgo(2, 9), tasks[2].id),
+    createSavingsEvent('julia', 'Pomoc w domu', 10, 'Szybkie wsparcie bez przypominania.', 'manual', isoDaysAgo(2, 18)),
     createSavingsEvent('julia', 'Weekendowy bonus', 15, 'Dodatkowy plus od rodziców.', 'manual', isoDaysAgo(4, 12)),
     createSavingsEvent('julia', 'Samodzielność', 25, 'Tydzień dobrych nawyków.', 'manual', isoDaysAgo(6, 17)),
   ]
 
   const history = [
-    createHistoryEntry('julia', 'task-added', 'Dodano zadanie', 'Ścielenie łóżka jest teraz zadaniem cyklicznym.', 'Mama', 3, isoDaysAgo(7, 8)),
-    createHistoryEntry('julia', 'task-completed', 'Zadanie wykonane', 'Julia wykonała ścielenie łóżka.', 'Rodzina', 3, isoDaysAgo(1, 9)),
-    createHistoryEntry('julia', 'reward', 'Nagroda do skarbonki', 'Do salda trafiło 3 zł.', 'System', 3, isoDaysAgo(1, 9)),
+    createHistoryEntry('julia', 'task-added', 'Dodano zadanie', 'Wypakowanie zmywarki wraca codziennie.', 'Mama', 5, isoDaysAgo(7, 8)),
+    createHistoryEntry('julia', 'task-completed', 'Zadanie wykonane', 'Julcia wykonała karmienie psa.', 'Rodzina', 4, isoDaysAgo(2, 9)),
+    createHistoryEntry('julia', 'reward', 'Nagroda do skarbonki', 'Do salda trafiło 4 zł.', 'System', 4, isoDaysAgo(2, 9)),
     createHistoryEntry('julia', 'plus', 'Przyznano plus', 'Pomoc przy stole i samodzielne działanie.', 'Tata', undefined, isoDaysAgo(2, 18)),
     createHistoryEntry('julia', 'minus', 'Przyznano minus', 'Kłótnia przy wieczornym sprzątaniu pokoju.', 'Mama', undefined, isoDaysAgo(5, 18)),
     createHistoryEntry('julia', 'reward', 'Nagroda do skarbonki', 'Weekendowy bonus został dodany.', 'Mama', 15, isoDaysAgo(4, 12)),
@@ -412,7 +427,7 @@ function seedJuliaState(): ChildState {
   return buildChildState({
     balance,
     totalEarned: balance,
-    pluses: 6,
+    pluses: 7,
     minuses: 1,
     activeDays: 7,
     lastActiveDate: now.slice(0, 10),
@@ -423,27 +438,27 @@ function seedJuliaState(): ChildState {
 }
 
 function seedOliwiaState(): ChildState {
-  const balance = 28
+  const balance = 41
   const now = nowIso()
   const tasks = [
-    createTask('oliwia', 'Wyniesienie śmieci', 'Poranna trasa do kosza.', 4, 'todo', 'weekly', isoDaysAgo(0, 8)),
-    createTask('oliwia', 'Ułożenie książek', 'Półka po prawej stronie.', 3, 'done', 'once', isoDaysAgo(1, 8), { completedAt: isoDaysAgo(1, 10) }),
-    createTask('oliwia', 'Nakarmienie rybek', 'Karmienie po obiedzie.', 5, 'todo', 'daily', isoDaysAgo(2, 8)),
-    createTask('oliwia', 'Pomoc przy stole', 'Nakrycie do kolacji.', 4, 'todo', 'daily', isoDaysAgo(3, 8)),
-    createTask('oliwia', 'Mycie łazienki', 'Krótki reset po sobocie.', 7, 'todo', 'weekly', isoDaysAgo(4, 8)),
+    createTask('oliwia', 'Układanie ubrań', 'Złożone rzeczy trafiają do szuflad.', 4, 'todo', 'daily', isoDaysAgo(0, 8)),
+    createTask('oliwia', 'Roznoszenie prania', 'Pranie wędruje do odpowiednich pokoi.', 4, 'done', 'weekly', isoDaysAgo(1, 8), { completedAt: isoDaysAgo(1, 10) }),
+    createTask('oliwia', 'Segregowanie prania', 'Jasne, ciemne i delikatne osobno.', 5, 'todo', 'weekly', isoDaysAgo(2, 8)),
+    createTask('oliwia', 'Karmienie psa', 'Rytuał poranny i wieczorny.', 4, 'todo', 'daily', isoDaysAgo(3, 8)),
+    createTask('oliwia', 'Spacer z psem', 'Krótki spacer po obiedzie.', 5, 'todo', 'weekly', isoDaysAgo(4, 8)),
   ]
 
   const savings = [
-    createSavingsEvent('oliwia', 'Ułożenie książek', 3, 'Pierwsze zadanie zostało zaliczone.', 'task', isoDaysAgo(1, 10), tasks[1].id),
+    createSavingsEvent('oliwia', 'Roznoszenie prania', 4, 'Obowiązek wykonany po zatwierdzeniu.', 'task', isoDaysAgo(1, 10), tasks[1].id),
     createSavingsEvent('oliwia', 'Samodzielność', 5, 'Zrobione bez przypominania.', 'manual', isoDaysAgo(2, 15)),
     createSavingsEvent('oliwia', 'Pomoc w domu', 8, 'Pomoc przy stole i sprzątaniu.', 'manual', isoDaysAgo(3, 19)),
     createSavingsEvent('oliwia', 'Dobre zachowanie', 12, 'Spokojny tydzień w domu.', 'manual', isoDaysAgo(6, 13)),
   ]
 
   const history = [
-    createHistoryEntry('oliwia', 'task-added', 'Dodano zadanie', 'Wyniesienie śmieci wraca co tydzień.', 'Tata', 4, isoDaysAgo(6, 8)),
-    createHistoryEntry('oliwia', 'task-completed', 'Zadanie wykonane', 'Ułożenie książek zostało zaliczone.', 'Mama', 3, isoDaysAgo(1, 10)),
-    createHistoryEntry('oliwia', 'reward', 'Nagroda do skarbonki', 'Do salda trafiło 3 zł.', 'System', 3, isoDaysAgo(1, 10)),
+    createHistoryEntry('oliwia', 'task-added', 'Dodano zadanie', 'Roznoszenie prania wraca co tydzień.', 'Tata', 4, isoDaysAgo(6, 8)),
+    createHistoryEntry('oliwia', 'task-completed', 'Zadanie wykonane', 'Oliwcia zaliczyła roznoszenie prania.', 'Mama', 4, isoDaysAgo(1, 10)),
+    createHistoryEntry('oliwia', 'reward', 'Nagroda do skarbonki', 'Do salda trafiło 4 zł.', 'System', 4, isoDaysAgo(1, 10)),
     createHistoryEntry('oliwia', 'plus', 'Przyznano plus', 'Samodzielne przygotowanie stołu.', 'Mama', undefined, isoDaysAgo(2, 15)),
     createHistoryEntry('oliwia', 'minus', 'Przyznano minus', 'Niewykonanie obowiązku przy porządkach.', 'Tata', undefined, isoDaysAgo(5, 16)),
     createHistoryEntry('oliwia', 'reward', 'Nagroda do skarbonki', 'Dodatkowa nagroda za dobre zachowanie.', 'Tata', 12, isoDaysAgo(6, 13)),
@@ -452,7 +467,7 @@ function seedOliwiaState(): ChildState {
   return buildChildState({
     balance,
     totalEarned: balance,
-    pluses: 4,
+    pluses: 5,
     minuses: 2,
     activeDays: 4,
     lastActiveDate: now.slice(0, 10),
@@ -464,7 +479,7 @@ function seedOliwiaState(): ChildState {
 
 export function createInitialState(): AppState {
   return {
-    version: 2,
+    version: 3,
     children: {
       julia: seedJuliaState(),
       oliwia: seedOliwiaState(),
@@ -502,7 +517,7 @@ function migrateLegacyHistory(entry: LegacyAppState['children'][ChildId]['histor
 
 export function migrateLegacyState(state: LegacyAppState): AppState {
   return {
-    version: 2,
+    version: 3,
     children: {
       julia: {
         balance: state.children.julia.balance,
@@ -562,7 +577,7 @@ export function loadPersistedState(raw: string | null): AppState {
   try {
     const parsed = JSON.parse(raw) as AppState | LegacyAppState
 
-    if ((parsed as AppState).version === 2 && (parsed as AppState).children?.julia?.tasks) {
+    if ((parsed as AppState).version === 3 && (parsed as AppState).children?.julia?.tasks) {
       return parsed as AppState
     }
 
