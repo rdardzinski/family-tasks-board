@@ -51,8 +51,6 @@ import {
   TrashIcon,
   UndoIcon,
 } from './icons'
-import juliaPortrait from './assets/julia-portrait.png'
-import oliwiaPortrait from './assets/oliwia-portrait.png'
 
 type View = 'dashboard' | 'board' | 'history' | 'settings'
 
@@ -150,6 +148,18 @@ function getChildAchievements(child: ChildState) {
     ...rule,
     unlocked: rule.unlocked(child),
   }))
+}
+
+function childInitial(childId: ChildId) {
+  return childId === 'julia' ? 'J' : 'O'
+}
+
+function childName(childId: ChildId) {
+  return childId === 'julia' ? 'Julii' : 'Oliwii'
+}
+
+function childLabel(childId: ChildId) {
+  return childId === 'julia' ? 'Julia' : 'Oliwia'
 }
 
 function App() {
@@ -811,15 +821,19 @@ function AppHeader({
   onViewChange: (view: View) => void
 }) {
   return (
-    <header className="rounded-[30px] border border-brand-border/70 bg-white/82 p-3 shadow-soft backdrop-blur sm:p-4">
+    <header className="rounded-[30px] border border-brand-border/70 bg-white/90 p-3 shadow-soft backdrop-blur sm:p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-sun via-brand-coral to-brand-sky text-white shadow-pop">
-            <SparkIcon className="h-5 w-5" />
+            <div className="flex items-center gap-0.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-white" />
+              <span className="h-3.5 w-3.5 rounded-full bg-white/92" />
+              <span className="h-2.5 w-2.5 rounded-full bg-white" />
+            </div>
           </div>
           <div>
             <p className="font-display text-xl tracking-tight text-brand-ink sm:text-2xl">Family Tasks Board</p>
-            <p className="text-xs text-brand-muted sm:text-sm">Rodzinne zadania, nagrody i skarbonki.</p>
+            <p className="text-xs text-brand-muted sm:text-sm">Domowe zadania, plusy, minusy i skarbonki w jednym miejscu.</p>
           </div>
         </div>
 
@@ -910,18 +924,20 @@ function DashboardView({
 }) {
   return (
     <section className="space-y-4 sm:space-y-5">
-      <div className="rounded-[30px] border border-brand-border/70 bg-white/84 p-4 shadow-soft backdrop-blur sm:p-5">
-        <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-brand-sunSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#8a6a00]">
-          Rodzinny dashboard
-        </p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-2xl">
-            <h1 className="font-display text-3xl leading-tight tracking-tight text-brand-ink sm:text-5xl">Szybki podgląd rodziny.</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
-              Jednym rzutem oka widać saldo, aktywne zadania, plusy i minusy dla Julii i Oliwii.
+      <div className="rounded-[32px] border border-brand-border/70 bg-white/92 p-4 shadow-soft backdrop-blur sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="max-w-3xl">
+            <p className="inline-flex rounded-full bg-brand-sunSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#8a6a00]">
+              Rodzinny panel
+            </p>
+            <h1 className="mt-3 font-display text-3xl leading-tight tracking-tight text-brand-ink sm:text-5xl">
+              Dwie tablice, jedna spokojna codzienność.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
+              Wszystko, czego potrzebuje rodzic: zadania dzieci, skarbonki, plusy, minusy i historia działań.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[360px] sm:grid-cols-3">
             <StatTile label="Saldo razem" value={formatMoney(summary.balance)} tone="mint" />
             <StatTile label="Aktywne" value={String(summary.active)} tone="sky" />
             <StatTile label="Osiągnięcia" value={String(summary.unlocked)} tone="sun" />
@@ -954,22 +970,57 @@ function DashboardChildCard({
   }
   onOpenChild: (childId: ChildId) => void
 }) {
-  const portrait = item.id === 'julia' ? juliaPortrait : oliwiaPortrait
   const recentSavings = item.savings.slice(0, 2)
+  const childTone = item.id === 'julia' ? 'from-[#dcfbf0] via-[#effcf7] to-white' : 'from-[#eaf5ff] via-[#f4faff] to-white'
 
   return (
-    <article className="overflow-hidden rounded-[32px] border border-brand-border/70 bg-white/90 shadow-soft">
-      <div className="grid gap-0 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <div className="relative min-h-[240px] bg-brand-page">
-          <img src={portrait} alt={item.name} className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0)_42%,rgba(255,255,255,0.2))]" />
+    <article className="overflow-hidden rounded-[34px] border border-brand-border/70 bg-white/96 shadow-soft">
+      <div className="grid gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <div className={`relative flex min-h-[260px] flex-col justify-between overflow-hidden bg-gradient-to-br ${childTone} p-5 sm:p-6`}>
+          <div className="absolute -left-10 top-10 h-28 w-28 rounded-full blur-3xl" style={{ background: item.accentRing }} />
+          <div className="absolute -right-8 bottom-8 h-24 w-24 rounded-full bg-white/50 blur-2xl" />
+
+          <div className="relative flex items-start justify-between gap-3">
+            <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: item.accentSoft, color: item.accentStrong }}>
+              {item.name}
+            </div>
+            <div className="rounded-full bg-white/90 p-2 text-brand-ink shadow-soft">
+              <SparkIcon className="h-4 w-4" />
+            </div>
+          </div>
+
+          <div className="relative flex flex-1 items-center justify-center py-6">
+            <div className="relative flex h-40 w-40 items-center justify-center rounded-[42px] bg-white shadow-soft">
+              <div className="absolute -left-3 top-4 h-4 w-4 rounded-full bg-brand-sun opacity-80" />
+              <div className="absolute right-4 top-5 h-3 w-3 rounded-full bg-brand-coral opacity-80" />
+              <div className="absolute bottom-4 left-5 h-2.5 w-2.5 rounded-full bg-brand-sky opacity-80" />
+              <div className="text-center">
+                <div className="font-display text-6xl leading-none text-brand-ink">{childInitial(item.id)}</div>
+                <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: item.accentStrong }}>
+                  {childLabel(item.id)}
+                </p>
+                <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: item.accentStrong }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="relative grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-white/85 px-3 py-3 shadow-soft">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Saldo</p>
+              <p className="mt-1 font-display text-xl text-brand-ink">{formatMoney(item.balance)}</p>
+            </div>
+            <div className="rounded-2xl bg-white/85 px-3 py-3 shadow-soft">
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Aktywne</p>
+              <p className="mt-1 font-display text-xl text-brand-ink">{item.activeTasks}</p>
+            </div>
+          </div>
         </div>
 
         <div className="p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: item.accentSoft, color: item.accentStrong }}>
-                {item.name}
+                {item.id === 'julia' ? 'Julia' : 'Oliwia'}
               </p>
               <p className="mt-2 text-sm leading-6 text-brand-muted">{item.description}</p>
             </div>
@@ -991,7 +1042,7 @@ function DashboardChildCard({
               onClick={() => onOpenChild(item.id)}
               className="inline-flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:translate-y-[-1px]"
             >
-              Przejdź do tablicy {item.id === 'julia' ? 'Julii' : 'Oliwii'}
+              Przejdź do tablicy {childName(item.id)}
             </button>
             <div className="rounded-full bg-brand-page px-4 py-3 text-sm font-semibold text-brand-muted">
               {item.completed} wykonanych
@@ -1051,142 +1102,223 @@ function ChildBoardView({
   onOpenHistory: () => void
   onOpenSettings: () => void
 }) {
-  const portrait = meta.id === 'julia' ? juliaPortrait : oliwiaPortrait
   const activeTasks = sortTasks(child.tasks.filter((task) => task.status !== 'done'))
   const doneTasks = sortTasks(child.tasks.filter((task) => task.status === 'done'))
   const achievements = getChildAchievements(child)
-  const balanceFlash = false
+  const childAccent = meta.id === 'julia' ? 'from-[#e8fbf3] via-[#f5fdf8] to-white' : 'from-[#ecf6ff] via-[#f6fbff] to-white'
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_380px]">
-      <div className="space-y-5">
-        <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <article className="relative overflow-hidden rounded-[34px] border border-brand-border/70 bg-white/90 shadow-soft">
-            <img src={portrait} alt={meta.name} className="h-[280px] w-full object-cover sm:h-[320px]" />
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.24)_74%,rgba(255,255,255,0.38))]" />
-            <div className="absolute left-4 top-4 flex gap-2">
-              {childOrder.map((childId) => {
-                const childMeta = CHILDREN[childId]
-                const selected = childId === activeChild
-                return (
-                  <button
-                    key={childId}
-                    type="button"
-                    onClick={() => onSwitchChild(childId)}
-                    className={cx(
-                      'rounded-full px-4 py-2 text-sm font-bold shadow-soft transition',
-                      selected ? 'bg-brand-ink text-white' : 'bg-white/90 text-brand-muted',
-                    )}
-                  >
-                    {childMeta.name}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="absolute inset-x-4 bottom-4 rounded-[28px] bg-white/92 p-4 shadow-soft backdrop-blur">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Saldo skarbonki</p>
-                  <p className={cx('mt-1 font-display text-4xl tracking-tight', balanceFlash ? 'animate-pulse' : '')} style={{ color: meta.accentStrong }}>
-                    {formatMoney(child.balance)}
-                  </p>
-                </div>
-                <PiggyIcon className="h-12 w-12 text-brand-ink" />
-              </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                <div className="rounded-2xl bg-brand-mintSoft px-3 py-2">
-                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Zarabione</p>
-                  <p className="font-display text-xl text-brand-ink">{formatMoney(child.totalEarned)}</p>
-                </div>
-                <div className="rounded-2xl bg-brand-skySoft px-3 py-2">
-                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Dni aktywne</p>
-                  <p className="font-display text-xl text-brand-ink">{child.activeDays}</p>
-                </div>
-                <div className="rounded-2xl bg-brand-sunSoft px-3 py-2">
-                  <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Punkty</p>
-                  <p className="font-display text-xl text-brand-ink">{child.pluses - child.minuses}</p>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: meta.accentSoft, color: meta.accentStrong }}>
-                  {meta.name}
-                </p>
-                <h2 className="mt-2 font-display text-4xl tracking-tight text-brand-ink">{meta.name}</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-muted">
-                  Krótsze komunikaty, większe przyciski, bardziej mobilne karty i szybkie akcje jednym kliknięciem.
-                </p>
+    <section className="space-y-5">
+      <article className="overflow-hidden rounded-[34px] border border-brand-border/70 bg-white/96 shadow-soft">
+        <div className={`bg-gradient-to-br ${childAccent}`}>
+          <div className="flex flex-col gap-4 p-4 sm:p-5 lg:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex rounded-full bg-brand-coralSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#b65b4f]">
+                Tablica dziecka
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={onOpenHistory} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
-                  Historia
-                </button>
-                <button type="button" onClick={onOpenSettings} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
-                  Ustawienia
-                </button>
+                {childOrder.map((childId) => {
+                  const selected = childId === activeChild
+                  return (
+                    <button
+                      key={childId}
+                      type="button"
+                      onClick={() => onSwitchChild(childId)}
+                      className={cx(
+                        'rounded-full px-4 py-2 text-sm font-bold transition',
+                        selected ? 'bg-brand-ink text-white shadow-pop' : 'bg-white/85 text-brand-muted',
+                      )}
+                    >
+                      {childLabel(childId)}
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatTile label="Saldo" value={formatMoney(child.balance)} tone="mint" />
-              <StatTile label="Aktywne" value={String(activeTasks.length)} tone="sky" />
-              <StatTile label="Plusy" value={String(child.pluses)} tone="sun" />
-              <StatTile label="Minusy" value={String(child.minuses)} tone="coral" />
+            <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
+              <div className="flex items-center justify-center">
+                <div className="relative flex h-40 w-40 items-center justify-center rounded-[42px] bg-white/90 shadow-soft">
+                  <div className="absolute -left-4 top-5 h-4 w-4 rounded-full bg-brand-sun opacity-70" />
+                  <div className="absolute right-5 top-5 h-3.5 w-3.5 rounded-full bg-brand-coral opacity-70" />
+                  <div className="absolute bottom-5 left-5 h-2.5 w-2.5 rounded-full bg-brand-sky opacity-70" />
+                  <div className="text-center">
+                    <div className="font-display text-6xl leading-none text-brand-ink">{childInitial(meta.id)}</div>
+                    <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: meta.accentStrong }}>
+                      {meta.name}
+                    </p>
+                    <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: meta.accentStrong }} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: meta.accentSoft, color: meta.accentStrong }}>
+                  {meta.id === 'julia' ? 'Julia' : 'Oliwia'}
+                </div>
+                <h2 className="font-display text-4xl tracking-tight text-brand-ink">{meta.name}</h2>
+                <p className="max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
+                  Zadbaj o obowiązki, nagrody i konsekwencje. Statusy zmieniają się płynnie, a skarbonka rośnie automatycznie po wykonaniu zadania.
+                </p>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask('add')}
+                    className="inline-flex items-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    Dodaj zadanie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPresetAction('plus', PLUS_PRESETS[0])}
+                    className="inline-flex items-center gap-2 rounded-full bg-brand-mintSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    Przyznaj plus
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPresetAction('minus', MINUS_PRESETS[0])}
+                    className="inline-flex items-center gap-2 rounded-full bg-brand-coralSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
+                  >
+                    <MinusIcon className="h-4 w-4" />
+                    Przyznaj minus
+                  </button>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-[24px] bg-white/90 px-4 py-3 shadow-soft">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Saldo skarbonki</p>
+                    <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">{formatMoney(child.balance)}</p>
+                  </div>
+                  <div className="rounded-[24px] bg-white/90 px-4 py-3 shadow-soft">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Aktywne zadania</p>
+                    <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">{activeTasks.length}</p>
+                  </div>
+                  <div className="rounded-[24px] bg-white/90 px-4 py-3 shadow-soft">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Plusy / minusy</p>
+                    <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">
+                      {child.pluses}/{child.minuses}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatTile label="Saldo" value={formatMoney(child.balance)} tone="mint" />
+          <StatTile label="Aktywne" value={String(activeTasks.length)} tone="sky" />
+          <StatTile label="Plusy" value={String(child.pluses)} tone="sun" />
+          <StatTile label="Minusy" value={String(child.minuses)} tone="coral" />
+        </div>
+      </article>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_360px]">
+        <div className="space-y-4">
+          <section className="rounded-[34px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Zadania</p>
+                <h3 className="mt-1 font-display text-2xl text-brand-ink">Aktywne i wykonane</h3>
+              </div>
+              <div className="rounded-full bg-brand-page px-4 py-2 text-sm font-semibold text-brand-muted">
+                {activeTasks.length} aktywnych, {doneTasks.length} wykonanych
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => onOpenTask('add')}
-                className="inline-flex items-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
+                onClick={() => onOpenHistory()}
+                className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
               >
-                <PlusIcon className="h-4 w-4" />
-                Dodaj zadanie
+                <HistoryIcon className="h-4 w-4" />
+                Historia
               </button>
               <button
                 type="button"
-                onClick={() => onPresetAction('plus', PLUS_PRESETS[0])}
-                className="inline-flex items-center gap-2 rounded-full bg-brand-mintSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
+                onClick={() => onOpenSettings()}
+                className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
               >
-                <PlusIcon className="h-4 w-4" />
-                Plus jednym kliknięciem
-              </button>
-              <button
-                type="button"
-                onClick={() => onPresetAction('minus', MINUS_PRESETS[0])}
-                className="inline-flex items-center gap-2 rounded-full bg-brand-coralSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
-              >
-                <MinusIcon className="h-4 w-4" />
-                Minus jednym kliknięciem
+                <SettingsIcon className="h-4 w-4" />
+                Ustawienia
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {PLUS_PRESETS.map((preset) => (
-                <ActionPresetButton
-                  key={preset.id}
-                  kind="plus"
-                  preset={preset}
-                  onClick={() => onPresetAction('plus', preset)}
-                />
-              ))}
-              {MINUS_PRESETS.map((preset) => (
-                <ActionPresetButton
-                  key={preset.id}
-                  kind="minus"
-                  preset={preset}
-                  onClick={() => onPresetAction('minus', preset)}
+            <div className="mt-4 space-y-3">
+              {activeTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onComplete={() => onCompleteTask(task.id)}
+                  onReactivate={() => onReactivateTask(task.id)}
+                  onCopy={() => onCopyTask(task.id)}
+                  onEdit={() => onOpenTask('edit', task.id)}
+                  onDelete={() => onDeleteTask(task.id)}
                 />
               ))}
             </div>
-          </article>
+
+            {doneTasks.length ? (
+              <div className="mt-5 rounded-[28px] bg-brand-page/80 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Wykonane</p>
+                    <p className="mt-1 font-semibold text-brand-ink">{doneTasks.length} gotowych do przywrócenia lub kopiowania</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {doneTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      completed
+                      onComplete={() => onCompleteTask(task.id)}
+                      onReactivate={() => onReactivateTask(task.id)}
+                      onCopy={() => onCopyTask(task.id)}
+                      onEdit={() => onOpenTask('edit', task.id)}
+                      onDelete={() => onDeleteTask(task.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <aside className="space-y-4">
+          <article className="rounded-[34px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Skarbonka</p>
+            <h3 className="mt-1 font-display text-2xl tracking-tight text-brand-ink">Saldo i wzrost</h3>
+            <div className="mt-4 rounded-[28px] bg-brand-ink p-5 text-white shadow-pop">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-white/70">Aktualne saldo</p>
+              <p className="mt-2 font-display text-4xl tracking-tight">{formatMoney(child.balance)}</p>
+              <p className="mt-3 text-sm leading-6 text-white/75">Każde zadanie oznaczone jako wykonane automatycznie dodaje przypisaną kwotę do salda.</p>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-brand-mintSoft px-3 py-3">
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Zarobione</p>
+                <p className="mt-1 font-display text-2xl text-brand-ink">{formatMoney(child.totalEarned)}</p>
+              </div>
+              <div className="rounded-2xl bg-brand-skySoft px-3 py-3">
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Dni aktywne</p>
+                <p className="mt-1 font-display text-2xl text-brand-ink">{child.activeDays}</p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button type="button" onClick={onOpenHistory} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
+                Historia
+              </button>
+              <button type="button" onClick={onOpenSettings} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
+                Ustawienia
+              </button>
+            </div>
+          </article>
+
           <MiniListCard title="Historia wpływów" icon={<CoinsIcon className="h-4 w-4" />} compact={false}>
             {child.savings.slice(0, 5).map((entry) => (
               <li key={entry.id} className="rounded-2xl bg-brand-page px-3 py-3">
@@ -1219,81 +1351,33 @@ function ChildBoardView({
               </li>
             ))}
           </MiniListCard>
-        </div>
 
-        <section className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Zadania</p>
-              <h3 className="mt-1 font-display text-2xl text-brand-ink">Aktywne i wykonane</h3>
-            </div>
-            <div className="rounded-full bg-brand-page px-4 py-2 text-sm font-semibold text-brand-muted">
-              {activeTasks.length} aktywnych, {doneTasks.length} wykonanych
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {activeTasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onComplete={() => onCompleteTask(task.id)}
-                onReactivate={() => onReactivateTask(task.id)}
-                onCopy={() => onCopyTask(task.id)}
-                onEdit={() => onOpenTask('edit', task.id)}
-                onDelete={() => onDeleteTask(task.id)}
-              />
-            ))}
-          </div>
-
-          {doneTasks.length ? (
-            <div className="mt-5 rounded-[28px] bg-brand-page/80 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Wykonane</p>
-                  <p className="mt-1 font-semibold text-brand-ink">{doneTasks.length} gotowych do przywrócenia lub kopiowania</p>
+          <MiniListCard title="Zadania dziecka" icon={<TaskIcon className="h-4 w-4" />} compact={false}>
+            {child.tasks.slice(0, 4).map((task) => (
+              <li key={task.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-brand-ink">{task.title}</p>
+                  <p className="text-xs text-brand-muted">
+                    {taskFrequencyLabel(task.frequency)} · {formatMoney(task.reward)}
+                  </p>
                 </div>
-              </div>
-              <div className="mt-3 space-y-3">
-                {doneTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    completed
-                    onComplete={() => onCompleteTask(task.id)}
-                    onReactivate={() => onReactivateTask(task.id)}
-                    onCopy={() => onCopyTask(task.id)}
-                    onEdit={() => onOpenTask('edit', task.id)}
-                    onDelete={() => onDeleteTask(task.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
+                <span
+                  className={cx(
+                    'rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em]',
+                    task.status === 'done'
+                      ? 'bg-brand-mintSoft text-brand-ink'
+                      : task.status === 'progress'
+                        ? 'bg-brand-skySoft text-brand-ink'
+                        : 'bg-brand-sunSoft text-brand-ink',
+                  )}
+                >
+                  {task.status === 'done' ? 'Wykonane' : task.status === 'progress' ? 'W trakcie' : 'Do wykonania'}
+                </span>
+              </li>
+            ))}
+          </MiniListCard>
+        </aside>
       </div>
-
-      <aside className="space-y-4">
-        <MiniListCard title="Szybki bilans" icon={<SparkIcon className="h-4 w-4" />} compact={false}>
-          <li className="rounded-2xl bg-brand-mintSoft px-3 py-3 text-sm text-brand-ink">Julii i Oliwii rośnie saldo po każdym wykonanym zadaniu.</li>
-          <li className="rounded-2xl bg-brand-skySoft px-3 py-3 text-sm text-brand-ink">Cykliczne zadania tworzą kolejną instancję automatycznie.</li>
-          <li className="rounded-2xl bg-brand-sunSoft px-3 py-3 text-sm text-brand-ink">Plusy i minusy dodajesz z gotowych presetów.</li>
-        </MiniListCard>
-
-        <MiniListCard title="Zadania dziecka" icon={<TaskIcon className="h-4 w-4" />} compact={false}>
-          {child.tasks.slice(0, 4).map((task) => (
-            <li key={task.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-brand-ink">{task.title}</p>
-                <p className="text-xs text-brand-muted">{taskFrequencyLabel(task.frequency)} · {formatMoney(task.reward)}</p>
-              </div>
-              <span className={cx('rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em]', task.status === 'done' ? 'bg-brand-mintSoft text-brand-ink' : task.status === 'progress' ? 'bg-brand-skySoft text-brand-ink' : 'bg-brand-sunSoft text-brand-ink')}>
-                {task.status === 'done' ? 'Wykonane' : task.status === 'progress' ? 'W trakcie' : 'Do wykonania'}
-              </span>
-            </li>
-          ))}
-        </MiniListCard>
-      </aside>
     </section>
   )
 }
@@ -1568,6 +1652,8 @@ function TaskModal({
 }) {
   const task = draft.taskId ? state.children[draft.childId].tasks.find((entry) => entry.id === draft.taskId) ?? null : null
   const [role, setRole] = useState<ParentRole>('Mama')
+  const [secret, setSecret] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const [values, setValues] = useState<TaskFormValues>(() => ({
     title: task?.title ?? '',
     description: task?.description ?? '',
@@ -1646,6 +1732,20 @@ function TaskModal({
               ))}
             </div>
           </Field>
+
+          <Field>
+            <FieldLabel>Hasło rodzica</FieldLabel>
+            <FieldInput
+              type="password"
+              value={secret}
+              onChange={(event) => {
+                setSecret(event.target.value)
+                setError(null)
+              }}
+              placeholder={`Wpisz ${role}`}
+            />
+            {error ? <p className="mt-2 text-xs font-semibold text-brand-coral">{error}</p> : null}
+          </Field>
         </section>
 
         <section className="space-y-4">
@@ -1671,7 +1771,14 @@ function TaskModal({
 
           <button
             type="button"
-            onClick={() => onSubmit(values, role)}
+            onClick={() => {
+              if (secret.trim() !== role) {
+                setError('Wpisz dokładnie hasło Mama albo Tata.')
+                return
+              }
+
+              onSubmit(values, role)
+            }}
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-4 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
           >
             <LockIcon className="h-4 w-4" />
@@ -1696,6 +1803,8 @@ function ActionDialogModal({
   onConfirm: (role: ParentRole) => void
 }) {
   const [role, setRole] = useState<ParentRole>('Mama')
+  const [secret, setSecret] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   return (
     <ModalShell title={dialog.title} onClose={onClose}>
@@ -1716,9 +1825,29 @@ function ActionDialogModal({
             </button>
           ))}
         </div>
+        <Field>
+          <FieldLabel>Hasło rodzica</FieldLabel>
+          <FieldInput
+            type="password"
+            value={secret}
+            onChange={(event) => {
+              setSecret(event.target.value)
+              setError(null)
+            }}
+            placeholder={`Wpisz ${role}`}
+          />
+          {error ? <p className="mt-2 text-xs font-semibold text-brand-coral">{error}</p> : null}
+        </Field>
         <button
           type="button"
-          onClick={() => onConfirm(role)}
+          onClick={() => {
+            if (secret.trim() !== role) {
+              setError('Wpisz dokładnie hasło Mama albo Tata.')
+              return
+            }
+
+            onConfirm(role)
+          }}
           className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-coral px-5 py-4 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
         >
           <LockIcon className="h-4 w-4" />
@@ -1798,30 +1927,6 @@ function MiniListCard({
       </div>
       <AppBodyList>{children}</AppBodyList>
     </div>
-  )
-}
-
-function ActionPresetButton({
-  kind,
-  preset,
-  onClick,
-}: {
-  kind: 'plus' | 'minus'
-  preset: ActionPreset
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cx(
-        'rounded-[24px] border px-4 py-3 text-left transition hover:-translate-y-0.5',
-        kind === 'plus' ? 'border-brand-mint/30 bg-brand-mintSoft' : 'border-brand-coral/30 bg-brand-coralSoft',
-      )}
-    >
-      <p className="text-sm font-black uppercase tracking-[0.22em] text-brand-ink">{preset.label}</p>
-      <p className="mt-1 text-xs leading-5 text-brand-muted">{preset.detail}</p>
-    </button>
   )
 }
 
