@@ -7,6 +7,7 @@ import {
   PLUS_PRESETS,
   STORAGE_KEY,
   TASK_FREQUENCY_OPTIONS,
+  TASK_PRESETS,
   type ActionPreset,
   type AppState,
   type ChildId,
@@ -33,8 +34,8 @@ import {
 } from './data'
 import {
   CheckIcon,
+  ChevronRightIcon,
   CoinsIcon,
-  CopyIcon,
   EditIcon,
   FilterIcon,
   HistoryIcon,
@@ -48,7 +49,6 @@ import {
   SparkIcon,
   TaskIcon,
   TrophyIcon,
-  TrashIcon,
   UndoIcon,
 } from './icons'
 
@@ -58,13 +58,7 @@ type TaskDraft = {
   childId: ChildId
   mode: 'add' | 'edit'
   taskId?: string
-}
-
-type ActionDialog = {
-  title: string
-  description: string
-  confirmLabel: string
-  action: (role: ParentRole) => void
+  seed?: Partial<TaskFormValues>
 }
 
 type TaskFormValues = {
@@ -75,12 +69,40 @@ type TaskFormValues = {
   status: TaskStatus
 }
 
+type PendingAction =
+  | { kind: 'open-task'; draft: TaskDraft }
+  | { kind: 'complete-task'; childId: ChildId; taskId: string }
+  | { kind: 'reactivate-task'; childId: ChildId; taskId: string }
+  | { kind: 'preset'; childId: ChildId; action: 'plus' | 'minus'; presetId: string }
+
+type ParentUiState = {
+  role: ParentRole | null
+  unlockedUntil: string | null
+}
+
+type ParentPrompt = {
+  title: string
+  description: string
+  confirmLabel: string
+}
+
+type ConfirmDialog = {
+  title: string
+  description: string
+  confirmLabel: string
+  onConfirm: () => void
+}
+
 type RewardFlash = {
   id: string
   childId: ChildId
   amount: number
   title: string
 }
+
+const UI_STORAGE_KEY = 'family-tasks-board:ui:v1'
+const PARENT_UNLOCK_MS = 10 * 60 * 1000
+const childOrder: ChildId[] = ['julia', 'oliwia']
 
 const mainViews: Array<{ key: View; label: string; icon: typeof HomeIcon }> = [
   { key: 'dashboard', label: 'Dashboard', icon: HomeIcon },
@@ -89,17 +111,39 @@ const mainViews: Array<{ key: View; label: string; icon: typeof HomeIcon }> = [
   { key: 'settings', label: 'Ustawienia', icon: SettingsIcon },
 ]
 
-const childOrder: ChildId[] = ['julia', 'oliwia']
-
 const historyFilters: Array<{ value: HistoryFilter; label: string }> = [
   { value: 'all', label: 'Wszystko' },
-  { value: 'julia', label: 'Julia' },
-  { value: 'oliwia', label: 'Oliwia' },
+  { value: 'julia', label: 'Julcia' },
+  { value: 'oliwia', label: 'Oliwcia' },
   { value: 'task', label: 'Zadania' },
   { value: 'plus', label: 'Plusy' },
   { value: 'minus', label: 'Minusy' },
   { value: 'reward', label: 'Nagrody' },
 ]
+
+const childThemes: Record<
+  ChildId,
+  { gradient: string; accent: string; accentSoft: string; accentStrong: string; ring: string; glow: string; badge: string }
+> = {
+  julia: {
+    gradient: 'from-[#d8fbf1] via-[#f5fffb] to-white',
+    accent: '#2bbd9f',
+    accentSoft: '#e9fbf5',
+    accentStrong: '#167f6d',
+    ring: 'rgba(43, 189, 159, 0.24)',
+    glow: 'rgba(43, 189, 159, 0.16)',
+    badge: 'Rodzinna zielen',
+  },
+  oliwia: {
+    gradient: 'from-[#fff0cf] via-[#fff9ec] to-white',
+    accent: '#f5a623',
+    accentSoft: '#fff4de',
+    accentStrong: '#b97709',
+    ring: 'rgba(245, 166, 35, 0.24)',
+    glow: 'rgba(245, 166, 35, 0.16)',
+    badge: 'Sloneczny rytm',
+  },
+}
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ')
@@ -109,30 +153,12 @@ function todayKey(timestamp = nowIso()) {
   return timestamp.slice(0, 10)
 }
 
-function touchActivity(child: ChildState, timestamp = nowIso()): ChildState {
-  const key = todayKey(timestamp)
-  if (child.lastActiveDate === key) {
-    return child
-  }
-
-  return {
-    ...child,
-    lastActiveDate: key,
-    activeDays: child.activeDays + 1,
-  }
+function childDisplayName(childId: ChildId) {
+  return childId === 'julia' ? 'Julcia' : 'Oliwcia'
 }
 
-function sortTasks(tasks: Task[]) {
-  return [...tasks].sort((left, right) => {
-    const statusOrder = (task: Task) => (task.status === 'done' ? 2 : task.status === 'progress' ? 1 : 0)
-    const statusDelta = statusOrder(left) - statusOrder(right)
-
-    if (statusDelta !== 0) {
-      return statusDelta
-    }
-
-    return Date.parse(right.createdAt) - Date.parse(left.createdAt)
-  })
+function childGenitive(childId: ChildId) {
+  return childId === 'julia' ? 'Julci' : 'Oliwci'
 }
 
 function taskCount(child: ChildState) {
@@ -150,16 +176,65 @@ function getChildAchievements(child: ChildState) {
   }))
 }
 
-function childInitial(childId: ChildId) {
-  return childId === 'julia' ? 'J' : 'O'
+function sortTasks(tasks: Task[]) {
+  return [...tasks].sort((left, right) => {
+    const statusOrder = (task: Task) => (task.status === 'done' ? 2 : task.status === 'progress' ? 1 : 0)
+    const delta = statusOrder(left) - statusOrder(right)
+
+    if (delta !== 0) {
+      return delta
+    }
+
+    return Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  })
 }
 
-function childName(childId: ChildId) {
-  return childId === 'julia' ? 'Julii' : 'Oliwii'
+function formatCountdown(ms: number) {
+  const safe = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(safe / 60)
+  const seconds = safe % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-function childLabel(childId: ChildId) {
-  return childId === 'julia' ? 'Julia' : 'Oliwia'
+function loadParentUiState(): ParentUiState {
+  if (typeof window === 'undefined') {
+    return { role: null, unlockedUntil: null }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(UI_STORAGE_KEY)
+    if (!raw) {
+      return { role: null, unlockedUntil: null }
+    }
+
+    const parsed = JSON.parse(raw) as ParentUiState
+    if (!parsed?.unlockedUntil || Date.parse(parsed.unlockedUntil) <= Date.now()) {
+      return { role: null, unlockedUntil: null }
+    }
+
+    return {
+      role: parsed.role === 'Tata' ? 'Tata' : 'Mama',
+      unlockedUntil: parsed.unlockedUntil,
+    }
+  } catch {
+    return { role: null, unlockedUntil: null }
+  }
+}
+
+function taskStatusLabel(status: TaskStatus) {
+  return status === 'done' ? 'Wykonane' : status === 'progress' ? 'W trakcie' : 'Do wykonania'
+}
+
+function taskStatusTone(status: TaskStatus) {
+  if (status === 'done') return 'bg-brand-mintSoft text-brand-ink'
+  if (status === 'progress') return 'bg-brand-skySoft text-brand-ink'
+  return 'bg-brand-sunSoft text-brand-ink'
+}
+
+function taskFrequencyTone(frequency: TaskFrequency) {
+  if (frequency === 'daily') return 'bg-brand-skySoft text-brand-ink'
+  if (frequency === 'weekly') return 'bg-brand-mintSoft text-brand-ink'
+  return 'bg-brand-page text-brand-ink'
 }
 
 function App() {
@@ -170,22 +245,52 @@ function App() {
 
     return loadPersistedState(window.localStorage.getItem(STORAGE_KEY))
   })
+  const [uiState, setUiState] = useState<ParentUiState>(() => loadParentUiState())
   const [view, setView] = useState<View>('dashboard')
   const [activeChild, setActiveChild] = useState<ChildId>('julia')
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null)
-  const [actionDialog, setActionDialog] = useState<ActionDialog | null>(null)
+  const [parentPrompt, setParentPrompt] = useState<ParentPrompt | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog | null>(null)
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all')
   const [toast, setToast] = useState<string | null>(null)
   const [rewardFlash, setRewardFlash] = useState<RewardFlash | null>(null)
-  const [settingsTick, setSettingsTick] = useState(0)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
     } catch {
-      // Ignore storage failures in constrained browser modes.
+      // ignore storage failures
     }
   }, [state])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(uiState))
+    } catch {
+      // ignore storage failures
+    }
+  }, [uiState])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!uiState.unlockedUntil) {
+      return
+    }
+
+    const remaining = Date.parse(uiState.unlockedUntil) - Date.now()
+    const timer = window.setTimeout(() => {
+      setUiState({ role: null, unlockedUntil: null })
+      setToast('Tryb rodzica wygasł.')
+    }, Math.max(0, remaining))
+
+    return () => window.clearTimeout(timer)
+  }, [uiState.unlockedUntil])
 
   useEffect(() => {
     if (!toast) {
@@ -205,31 +310,38 @@ function App() {
     return () => window.clearTimeout(timeout)
   }, [rewardFlash])
 
-  const childStats = useMemo(() => {
-    return childOrder.map((childId) => {
-      const child = state.children[childId]
-      return {
-        ...CHILDREN[childId],
-        activeTasks: taskCount(child),
-        pluses: child.pluses,
-        minuses: child.minuses,
-        balance: child.balance,
-        earned: child.totalEarned,
-        completed: completedTaskCount(child),
-        achievements: getChildAchievements(child),
-        savings: [...child.savings].slice(0, 4),
-      }
-    })
-  }, [state])
+  const isParentUnlocked = Boolean(uiState.unlockedUntil && Date.parse(uiState.unlockedUntil) > nowMs)
+  const parentRole = uiState.role ?? 'Mama'
+  const parentRemaining = isParentUnlocked && uiState.unlockedUntil ? Date.parse(uiState.unlockedUntil) - nowMs : 0
 
-  const activeChildState = state.children[activeChild]
+  const childStats = useMemo(
+    () =>
+      childOrder.map((childId) => {
+        const child = state.children[childId]
+        const achievements = getChildAchievements(child)
+
+        return {
+          ...CHILDREN[childId],
+          childId,
+          activeTasks: taskCount(child),
+          pluses: child.pluses,
+          minuses: child.minuses,
+          balance: child.balance,
+          earned: child.totalEarned,
+          completed: completedTaskCount(child),
+          savings: [...child.savings].slice(0, 4),
+          achievements,
+        }
+      }),
+    [state],
+  )
 
   const visibleHistory = useMemo(() => {
-    const combined = childOrder
+    const entries = childOrder
       .flatMap((childId) => state.children[childId].history.map((entry) => ({ ...entry, childId })))
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
 
-    return combined.filter((entry) => {
+    return entries.filter((entry) => {
       if (historyFilter === 'all') {
         return true
       }
@@ -243,7 +355,7 @@ function App() {
   }, [historyFilter, state])
 
   const familySummary = useMemo(() => {
-    const totals = childOrder.reduce(
+    return childOrder.reduce(
       (acc, childId) => {
         const child = state.children[childId]
         acc.balance += child.balance
@@ -251,21 +363,14 @@ function App() {
         acc.pluses += child.pluses
         acc.minuses += child.minuses
         acc.earned += child.totalEarned
-        acc.unlocked += getChildAchievements(child).filter((achievement) => achievement.unlocked).length
+        acc.unlocked += getChildAchievements(child).filter((entry) => entry.unlocked).length
         return acc
       },
-      {
-        balance: 0,
-        active: 0,
-        pluses: 0,
-        minuses: 0,
-        earned: 0,
-        unlocked: 0,
-      },
+      { balance: 0, active: 0, pluses: 0, minuses: 0, earned: 0, unlocked: 0 },
     )
-
-    return totals
   }, [state])
+
+  const activeChildState = state.children[activeChild]
 
   function pushToast(message: string) {
     setToast(message)
@@ -290,15 +395,21 @@ function App() {
     })
   }
 
-  function openTaskDraft(childId: ChildId, mode: 'add' | 'edit', taskId?: string) {
-    setTaskDraft({ childId, mode, taskId })
+  function touchActivity(child: ChildState, timestamp = nowIso()) {
+    const key = todayKey(timestamp)
+
+    if (child.lastActiveDate === key) {
+      return child
+    }
+
+    return {
+      ...child,
+      lastActiveDate: key,
+      activeDays: child.activeDays + 1,
+    }
   }
 
-  function openActionDialog(title: string, description: string, confirmLabel: string, action: (role: ParentRole) => void) {
-    setActionDialog({ title, description, confirmLabel, action })
-  }
-
-  function saveTask(childId: ChildId, taskId: string | undefined, values: TaskFormValues, role: ParentRole) {
+  function saveTaskNow(childId: ChildId, taskId: string | undefined, values: TaskFormValues, role: ParentRole) {
     const reward = Math.max(0, Number(values.reward) || 0)
     const title = values.title.trim()
     const description = values.description.trim()
@@ -323,35 +434,11 @@ function App() {
           : nextChild.savings
 
         const history = [
-          createHistoryEntry(
-            childId,
-            'task-added',
-            'Dodano zadanie',
-            `${title} (${taskFrequencyLabel(values.frequency)})`,
-            role,
-            reward,
-            now,
-          ),
+          createHistoryEntry(childId, 'task-added', 'Dodano zadanie', `${title} (${taskFrequencyLabel(values.frequency)})`, role, reward, now),
           ...(balanceDelta
             ? [
-                createHistoryEntry(
-                  childId,
-                  'task-completed',
-                  'Zadanie wykonane',
-                  `${title} zostało zapisane jako wykonane.`,
-                  role,
-                  reward,
-                  now,
-                ),
-                createHistoryEntry(
-                  childId,
-                  'reward',
-                  'Nagroda do skarbonki',
-                  `Do skarbonki trafiło ${formatMoney(reward)}.`,
-                  'System',
-                  reward,
-                  now,
-                ),
+                createHistoryEntry(childId, 'task-completed', 'Zadanie wykonane', `${title} zostało zapisane jako wykonane.`, role, reward, now),
+                createHistoryEntry(childId, 'reward', 'Nagroda do skarbonki', `Do skarbonki trafiło ${formatMoney(reward)}.`, 'System', reward, now),
               ]
             : []),
           ...nextChild.history,
@@ -393,48 +480,16 @@ function App() {
         : nextChild.savings
 
       const history = [
-        createHistoryEntry(
-          childId,
-          'task-updated',
-          'Zadanie zapisane',
-          `${title} zostało zaktualizowane.`,
-          role,
-          reward,
-          now,
-        ),
+        createHistoryEntry(childId, 'task-updated', 'Zadanie zapisane', `${title} zostało zaktualizowane.`, role, reward, now),
         ...(becameDone
           ? [
-              createHistoryEntry(
-                childId,
-                'task-completed',
-                'Zadanie wykonane',
-                `${title} zostało oznaczone jako wykonane.`,
-                role,
-                reward,
-                now,
-              ),
-              createHistoryEntry(
-                childId,
-                'reward',
-                'Nagroda do skarbonki',
-                `Do skarbonki trafiło ${formatMoney(reward)}.`,
-                'System',
-                reward,
-                now,
-              ),
+              createHistoryEntry(childId, 'task-completed', 'Zadanie wykonane', `${title} zostało oznaczone jako wykonane.`, role, reward, now),
+              createHistoryEntry(childId, 'reward', 'Nagroda do skarbonki', `Do skarbonki trafiło ${formatMoney(reward)}.`, 'System', reward, now),
             ]
           : []),
         ...(becameTodo
           ? [
-              createHistoryEntry(
-                childId,
-                'task-reactivated',
-                'Zadanie przywrócone',
-                `${title} wróciło do aktywnych zadań.`,
-                role,
-                undefined,
-                now,
-              ),
+              createHistoryEntry(childId, 'task-reactivated', 'Zadanie przywrócone', `${title} wróciło do aktywnych zadań.`, role, undefined, now),
             ]
           : []),
         ...(rewardDelta
@@ -443,9 +498,7 @@ function App() {
                 childId,
                 'reward',
                 'Korekta nagrody',
-                rewardDelta > 0
-                  ? `Kwota wzrosła o ${formatMoney(rewardDelta)}.`
-                  : `Kwota zmalała o ${formatMoney(Math.abs(rewardDelta))}.`,
+                rewardDelta > 0 ? `Kwota wzrosła o ${formatMoney(rewardDelta)}.` : `Kwota zmalała o ${formatMoney(Math.abs(rewardDelta))}.`,
                 role,
                 rewardDelta,
                 now,
@@ -468,7 +521,7 @@ function App() {
     pushToast(taskId ? 'Zadanie zapisane.' : `Dodano ${title}.`)
   }
 
-  function completeTask(childId: ChildId, taskId: string) {
+  function completeTaskNow(childId: ChildId, taskId: string, role: ParentRole) {
     const child = state.children[childId]
     const task = child.tasks.find((entry) => entry.id === taskId)
 
@@ -477,11 +530,12 @@ function App() {
     }
 
     const now = nowIso()
-    const nextTask = task.frequency === 'once'
-      ? null
-      : createTask(childId, task.title, task.description, task.reward, 'todo', task.frequency, now, {
-          recurrenceSeedId: task.recurrenceSeedId ?? task.id,
-        })
+    const nextTask =
+      task.frequency === 'once'
+        ? null
+        : createTask(childId, task.title, task.description, task.reward, 'todo', task.frequency, now, {
+            recurrenceSeedId: task.recurrenceSeedId ?? task.id,
+          })
 
     updateChild(childId, (currentChild) => {
       const nextChild = touchActivity(currentChild, now)
@@ -493,32 +547,11 @@ function App() {
         updatedAt: now,
       }
 
-      const tasks = [
-        ...(nextTask ? [nextTask] : []),
-        ...nextChild.tasks.filter((entry) => entry.id !== taskId),
-        completedTask,
-      ]
-
+      const tasks = [...(nextTask ? [nextTask] : []), ...nextChild.tasks.filter((entry) => entry.id !== taskId), completedTask]
       const savings = [createSavingsEvent(childId, task.title, task.reward, 'Zadanie wykonane.', 'task', now, task.id), ...nextChild.savings]
       const history = [
-        createHistoryEntry(
-          childId,
-          'task-completed',
-          'Zadanie wykonane',
-          `${task.title} zakończone za ${formatMoney(task.reward)}.`,
-          'Rodzina',
-          task.reward,
-          now,
-        ),
-        createHistoryEntry(
-          childId,
-          'reward',
-          'Nagroda do skarbonki',
-          `Do skarbonki trafiło ${formatMoney(task.reward)}.`,
-          'System',
-          task.reward,
-          now,
-        ),
+        createHistoryEntry(childId, 'task-completed', 'Zadanie wykonane', `${task.title} zakończone za ${formatMoney(task.reward)}.`, role, task.reward, now),
+        createHistoryEntry(childId, 'reward', 'Nagroda do skarbonki', `Do skarbonki trafiło ${formatMoney(task.reward)}.`, 'System', task.reward, now),
         ...(nextTask
           ? [
               createHistoryEntry(
@@ -554,7 +587,7 @@ function App() {
     pushToast(`+${formatMoney(task.reward)} za ${task.title}.`)
   }
 
-  function reactivateTask(childId: ChildId, taskId: string) {
+  function reactivateTaskNow(childId: ChildId, taskId: string, role: ParentRole) {
     updateChild(childId, (child) => {
       const task = child.tasks.find((entry) => entry.id === taskId)
 
@@ -575,15 +608,7 @@ function App() {
         ...touchActivity(child, now),
         tasks: child.tasks.map((entry) => (entry.id === taskId ? nextTask : entry)),
         history: [
-          createHistoryEntry(
-            childId,
-            'task-reactivated',
-            'Zadanie przywrócone',
-            `${task.title} wróciło na listę aktywnych zadań.`,
-            'Mama',
-            undefined,
-            now,
-          ),
+          createHistoryEntry(childId, 'task-reactivated', 'Zadanie przywrócone', `${task.title} wróciło na listę aktywnych zadań.`, role, undefined, now),
           ...child.history,
         ],
       }
@@ -592,105 +617,21 @@ function App() {
     pushToast('Zadanie wróciło do aktywnych.')
   }
 
-  function copyTask(childId: ChildId, taskId: string) {
-    updateChild(childId, (child) => {
-      const task = child.tasks.find((entry) => entry.id === taskId)
-
-      if (!task) {
-        return child
-      }
-
-      const now = nowIso()
-      const duplicate = createTask(childId, `${task.title} - kopia`, task.description, task.reward, 'todo', task.frequency, now, {
-        recurrenceSeedId: task.recurrenceSeedId ?? task.id,
-      })
-
-      return {
-        ...touchActivity(child, now),
-        tasks: [duplicate, ...child.tasks],
-        history: [
-          createHistoryEntry(
-            childId,
-            'task-copied',
-            'Skopiowano zadanie',
-            `${task.title} skopiowano jako nową pozycję.`,
-            'Mama',
-            undefined,
-            now,
-          ),
-          ...child.history,
-        ],
-      }
-    })
-
-    pushToast('Utworzono kopię zadania.')
-  }
-
-  function deleteTask(childId: ChildId, taskId: string, role: ParentRole) {
-    updateChild(childId, (child) => {
-      const task = child.tasks.find((entry) => entry.id === taskId)
-
-      if (!task) {
-        return child
-      }
-
-      const now = nowIso()
-      const balanceDelta = task.rewardGranted ? -task.reward : 0
-
-      return {
-        ...touchActivity(child, now),
-        balance: child.balance + balanceDelta,
-        totalEarned: child.totalEarned + balanceDelta,
-        tasks: child.tasks.filter((entry) => entry.id !== taskId),
-        savings: balanceDelta
-          ? [createSavingsEvent(childId, `${task.title} - usunięcie`, balanceDelta, 'Korekta po usunięciu zadania.', 'manual', now, task.id), ...child.savings]
-          : child.savings,
-        history: [
-          createHistoryEntry(
-            childId,
-            'task-deleted',
-            'Zadanie usunięte',
-            `${task.title} usunięto z tablicy.`,
-            role,
-            undefined,
-            now,
-          ),
-          ...(balanceDelta
-            ? [
-                createHistoryEntry(
-                  childId,
-                  'reward',
-                  'Korekta salda',
-                  `Saldo skorygowano o ${formatMoney(Math.abs(balanceDelta))}.`,
-                  role,
-                  balanceDelta,
-                  now,
-                ),
-              ]
-            : []),
-          ...child.history,
-        ],
-      }
-    })
-
-    pushToast('Zadanie usunięte.')
-  }
-
-  function applyPreset(childId: ChildId, kind: 'plus' | 'minus', preset: ActionPreset, role: ParentRole) {
+  function applyPresetNow(childId: ChildId, action: 'plus' | 'minus', preset: ActionPreset, role: ParentRole) {
     updateChild(childId, (child) => {
       const now = nowIso()
       const updated = touchActivity(child, now)
-      const nextCount = kind === 'plus' ? child.pluses + 1 : child.minuses + 1
+      const nextCount = action === 'plus' ? child.pluses + 1 : child.minuses + 1
 
       return {
         ...updated,
-        pluses: kind === 'plus' ? nextCount : child.pluses,
-        minuses: kind === 'minus' ? nextCount : child.minuses,
+        pluses: action === 'plus' ? nextCount : child.pluses,
+        minuses: action === 'minus' ? nextCount : child.minuses,
         history: [
           createHistoryEntry(
             childId,
-            kind,
-            kind === 'plus' ? 'Przyznano plus' : 'Przyznano minus',
+            action,
+            action === 'plus' ? 'Przyznano plus' : 'Przyznano minus',
             preset.detail,
             role,
             undefined,
@@ -701,25 +642,183 @@ function App() {
       }
     })
 
-    pushToast(kind === 'plus' ? `Plus: ${preset.label}` : `Minus: ${preset.label}`)
+    pushToast(action === 'plus' ? `Plus: ${preset.label}` : `Minus: ${preset.label}`)
   }
 
-  function resetDemo() {
-    setState(createInitialState())
-    setView('dashboard')
-    setActiveChild('julia')
-    setHistoryFilter('all')
-    setTaskDraft(null)
-    setActionDialog(null)
-    setSettingsTick((current) => current + 1)
-    pushToast('Dane demo zostały przywrócone.')
+  function requestParentPrompt(prompt: ParentPrompt, action?: PendingAction | null) {
+    setParentPrompt(prompt)
+    setPendingAction(action ?? null)
+  }
+
+  function requestTaskDraft(draft: TaskDraft) {
+    if (isParentUnlocked) {
+      setTaskDraft(draft)
+      return
+    }
+
+    requestParentPrompt(
+      {
+        title: 'Odblokuj rodzica',
+        description: 'Podaj hasło Mama albo Tata, aby dodać, edytować lub zatwierdzać zadania.',
+        confirmLabel: 'Odblokuj i kontynuuj',
+      },
+      { kind: 'open-task', draft },
+    )
+  }
+
+  function requestCompleteTask(childId: ChildId, taskId: string) {
+    if (isParentUnlocked) {
+      completeTaskNow(childId, taskId, parentRole)
+      return
+    }
+
+    requestParentPrompt(
+      {
+        title: 'Zatwierdzenie wymaga rodzica',
+        description: 'Wykonanie zadania i wypłata do skarbonki są dostępne dopiero po odblokowaniu trybu rodzica.',
+        confirmLabel: 'Odblokuj i zatwierdź',
+      },
+      { kind: 'complete-task', childId, taskId },
+    )
+  }
+
+  function requestReactivateTask(childId: ChildId, taskId: string) {
+    if (isParentUnlocked) {
+      reactivateTaskNow(childId, taskId, parentRole)
+      return
+    }
+
+    requestParentPrompt(
+      {
+        title: 'Przywrócenie wymaga rodzica',
+        description: 'Tryb dziecka nie może cofać wykonanych zadań.',
+        confirmLabel: 'Odblokuj i przywróć',
+      },
+      { kind: 'reactivate-task', childId, taskId },
+    )
+  }
+
+  function requestPresetAction(childId: ChildId, action: 'plus' | 'minus', preset: ActionPreset) {
+    if (isParentUnlocked) {
+      applyPresetNow(childId, action, preset, parentRole)
+      return
+    }
+
+    requestParentPrompt(
+      {
+        title: action === 'plus' ? 'Plus wymaga rodzica' : 'Minus wymaga rodzica',
+        description: 'Plusy i minusy są dostępne wyłącznie po jednorazowym odblokowaniu trybu rodzica.',
+        confirmLabel: 'Odblokuj i kontynuuj',
+      },
+      { kind: 'preset', childId, action, presetId: preset.id },
+    )
+  }
+
+  function executePendingAction(action: PendingAction, role: ParentRole) {
+    switch (action.kind) {
+      case 'open-task':
+        setTaskDraft(action.draft)
+        break
+      case 'complete-task':
+        completeTaskNow(action.childId, action.taskId, role)
+        break
+      case 'reactivate-task':
+        reactivateTaskNow(action.childId, action.taskId, role)
+        break
+      case 'preset': {
+        const preset = [...PLUS_PRESETS, ...MINUS_PRESETS].find((entry) => entry.id === action.presetId)
+        if (preset) {
+          applyPresetNow(action.childId, action.action, preset, role)
+        }
+        break
+      }
+    }
+  }
+
+  function unlockParent(role: ParentRole) {
+    const unlockedUntil = new Date(Date.now() + PARENT_UNLOCK_MS).toISOString()
+    const queuedAction = pendingAction
+    setUiState({ role, unlockedUntil })
+    setParentPrompt(null)
+    setPendingAction(null)
+    pushToast(`Tryb rodzica aktywny jako ${role}.`)
+
+    if (queuedAction) {
+      executePendingAction(queuedAction, role)
+    }
+  }
+
+  function lockParent() {
+    setUiState({ role: null, unlockedUntil: null })
+    setParentPrompt(null)
+    setPendingAction(null)
+    pushToast('Tryb rodzica zablokowany.')
+  }
+
+  function requestResetDemo() {
+    if (!isParentUnlocked) {
+      requestParentPrompt(
+        {
+          title: 'Reset wymaga trybu rodzica',
+          description: 'Najpierw odblokuj rodzica, aby przywrócić dane demo.',
+          confirmLabel: 'Odblokuj',
+        },
+        null,
+      )
+      return
+    }
+
+    setConfirmDialog({
+      title: 'Przywrócić dane demo?',
+      description: 'To wyczyści LocalStorage i przywróci wbudowany zestaw startowy.',
+      confirmLabel: 'Przywróć',
+      onConfirm: () => {
+        setState(createInitialState())
+        setView('dashboard')
+        setActiveChild('julia')
+        setHistoryFilter('all')
+        setTaskDraft(null)
+        setParentPrompt(null)
+        setPendingAction(null)
+        setUiState({ role: null, unlockedUntil: null })
+        pushToast('Dane demo zostały przywrócone.')
+      },
+    })
+  }
+
+  function openParentUnlockOnly() {
+    requestParentPrompt({
+      title: 'Odblokuj rodzica',
+      description: 'Podaj dokładnie hasło Mama albo Tata. Tryb rodzica będzie aktywny przez 10 minut.',
+      confirmLabel: 'Odblokuj',
+    })
+  }
+
+  function queuedOrSetTaskDraft(draft: TaskDraft) {
+    requestTaskDraft(draft)
   }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-brand-page text-brand-ink">
       <DecorBackground />
       <div className="mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-3 pb-24 pt-3 sm:px-5 lg:px-8 lg:pb-8">
-        <AppHeader view={view} onViewChange={setView} />
+        <AppHeader
+          view={view}
+          onViewChange={setView}
+          onOpenParentUnlock={openParentUnlockOnly}
+          onLockParent={lockParent}
+          isParentUnlocked={isParentUnlocked}
+          parentRole={uiState.role}
+          parentRemaining={parentRemaining}
+        />
+
+        {isParentUnlocked ? (
+          <ParentModeBanner
+            role={uiState.role ?? 'Mama'}
+            remaining={parentRemaining}
+            onLockParent={lockParent}
+          />
+        ) : null}
 
         <main className="flex-1 py-4 sm:py-5">
           {view === 'dashboard' ? (
@@ -737,46 +836,28 @@ function App() {
             <ChildBoardView
               child={activeChildState}
               meta={CHILDREN[activeChild]}
-              activeChild={activeChild}
+              parentUnlocked={isParentUnlocked}
+              onOpenParentUnlock={openParentUnlockOnly}
               onSwitchChild={(childId) => setActiveChild(childId)}
-              onOpenTask={(mode, taskId) => openTaskDraft(activeChild, mode, taskId)}
-              onCompleteTask={(taskId) => completeTask(activeChild, taskId)}
-              onReactivateTask={(taskId) => reactivateTask(activeChild, taskId)}
-              onCopyTask={(taskId) => copyTask(activeChild, taskId)}
-              onDeleteTask={(taskId) =>
-                openActionDialog('Usunąć zadanie?', 'Ta operacja usunie zadanie z tablicy i zapisze korektę w historii.', 'Usuń', (role) =>
-                  deleteTask(activeChild, taskId, role),
-                )
-              }
-              onPresetAction={(kind, preset) =>
-                openActionDialog(
-                  kind === 'plus' ? 'Przyznać plus?' : 'Przyznać minus?',
-                  preset.detail,
-                  kind === 'plus' ? 'Dodaj plus' : 'Dodaj minus',
-                  (role) => applyPreset(activeChild, kind, preset, role),
-                )
-              }
+              onOpenTask={(mode, taskId, seed) => queuedOrSetTaskDraft({ childId: activeChild, mode, taskId, seed })}
+              onCompleteTask={(taskId) => requestCompleteTask(activeChild, taskId)}
+              onReactivateTask={(taskId) => requestReactivateTask(activeChild, taskId)}
+              onPresetAction={(kind, preset) => requestPresetAction(activeChild, kind, preset)}
               onOpenHistory={() => setView('history')}
               onOpenSettings={() => setView('settings')}
             />
           ) : null}
 
           {view === 'history' ? (
-            <HistoryView
-              entries={visibleHistory}
-              filter={historyFilter}
-              onFilterChange={setHistoryFilter}
-            />
+            <HistoryView entries={visibleHistory} filter={historyFilter} onFilterChange={setHistoryFilter} />
           ) : null}
 
           {view === 'settings' ? (
             <SettingsView
-              settingsTick={settingsTick}
-              onReset={() =>
-                openActionDialog('Przywrócić dane demo?', 'To wyczyści LocalStorage i przywróci wbudowany zestaw startowy.', 'Przywróć', () => {
-                  resetDemo()
-                })
-              }
+              parentUnlocked={isParentUnlocked}
+              parentRole={uiState.role}
+              onOpenParentUnlock={openParentUnlockOnly}
+              onReset={requestResetDemo}
             />
           ) : null}
         </main>
@@ -788,21 +869,33 @@ function App() {
         <TaskModal
           state={state}
           draft={taskDraft}
+          meta={CHILDREN[taskDraft.childId]}
           onClose={() => setTaskDraft(null)}
-          onSubmit={(values, role) => {
-            saveTask(taskDraft.childId, taskDraft.taskId, values, role)
+          onSubmit={(values) => {
+            saveTaskNow(taskDraft.childId, taskDraft.taskId, values, parentRole)
             setTaskDraft(null)
           }}
         />
       ) : null}
 
-      {actionDialog ? (
-        <ActionDialogModal
-          dialog={actionDialog}
-          onClose={() => setActionDialog(null)}
-          onConfirm={(role) => {
-            actionDialog.action(role)
-            setActionDialog(null)
+      {parentPrompt ? (
+        <ParentAuthModal
+          prompt={parentPrompt}
+          onClose={() => {
+            setParentPrompt(null)
+            setPendingAction(null)
+          }}
+          onUnlock={(role) => unlockParent(role)}
+        />
+      ) : null}
+
+      {confirmDialog ? (
+        <ConfirmModal
+          dialog={confirmDialog}
+          onClose={() => setConfirmDialog(null)}
+          onConfirm={() => {
+            confirmDialog.onConfirm()
+            setConfirmDialog(null)
           }}
         />
       ) : null}
@@ -816,25 +909,50 @@ function App() {
 function AppHeader({
   view,
   onViewChange,
+  onOpenParentUnlock,
+  onLockParent,
+  isParentUnlocked,
+  parentRole,
+  parentRemaining,
 }: {
   view: View
   onViewChange: (view: View) => void
+  onOpenParentUnlock: () => void
+  onLockParent: () => void
+  isParentUnlocked: boolean
+  parentRole: ParentRole | null
+  parentRemaining: number
 }) {
   return (
     <header className="rounded-[30px] border border-brand-border/70 bg-white/90 p-3 shadow-soft backdrop-blur sm:p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-sun via-brand-coral to-brand-sky text-white shadow-pop">
-            <div className="flex items-center gap-0.5">
-              <span className="h-2.5 w-2.5 rounded-full bg-white" />
-              <span className="h-3.5 w-3.5 rounded-full bg-white/92" />
-              <span className="h-2.5 w-2.5 rounded-full bg-white" />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-sun via-brand-coral to-brand-sky text-white shadow-pop">
+              <div className="flex items-center gap-0.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-white" />
+                <span className="h-3.5 w-3.5 rounded-full bg-white/92" />
+                <span className="h-2.5 w-2.5 rounded-full bg-white" />
+              </div>
+            </div>
+            <div>
+              <p className="font-display text-xl tracking-tight text-brand-ink sm:text-2xl">Family Tasks Board</p>
+              <p className="text-xs text-brand-muted sm:text-sm">Julcia, Oliwcia, skarbonki i rodzinny rytm w jednym miejscu.</p>
             </div>
           </div>
-          <div>
-            <p className="font-display text-xl tracking-tight text-brand-ink sm:text-2xl">Family Tasks Board</p>
-            <p className="text-xs text-brand-muted sm:text-sm">Domowe zadania, plusy, minusy i skarbonki w jednym miejscu.</p>
-          </div>
+
+          <button
+            type="button"
+            onClick={isParentUnlocked ? onLockParent : onOpenParentUnlock}
+            className={cx(
+              'inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-bold transition',
+              isParentUnlocked ? 'bg-brand-ink text-white shadow-pop' : 'bg-brand-page text-brand-ink hover:bg-white',
+            )}
+          >
+            <LockIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">{isParentUnlocked ? `${parentRole} · ${formatCountdown(parentRemaining)}` : 'Odblokuj rodzica'}</span>
+            <span className="sm:hidden">{isParentUnlocked ? 'Rodzic' : 'Unlock'}</span>
+          </button>
         </div>
 
         <nav className="hidden gap-2 rounded-full bg-brand-page/70 p-2 lg:flex">
@@ -860,6 +978,42 @@ function AppHeader({
         </nav>
       </div>
     </header>
+  )
+}
+
+function ParentModeBanner({
+  role,
+  remaining,
+  onLockParent,
+}: {
+  role: ParentRole
+  remaining: number
+  onLockParent: () => void
+}) {
+  return (
+    <div className="mt-3 rounded-[28px] border border-brand-mint/30 bg-white/90 px-4 py-3 shadow-soft">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-2xl bg-brand-mintSoft p-3 text-brand-ink">
+            <ParentIcon className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Tryb rodzica aktywny</p>
+            <p className="mt-1 font-display text-2xl tracking-tight text-brand-ink">
+              {role} · {formatCountdown(remaining)}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onLockParent}
+          className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-ink px-4 py-3 text-sm font-bold text-white shadow-pop"
+        >
+          <LockIcon className="h-4 w-4" />
+          Zablokuj
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -902,14 +1056,15 @@ function DashboardView({
 }: {
   items: Array<
     ChildMeta & {
+      childId: ChildId
       activeTasks: number
       pluses: number
       minuses: number
       balance: number
       earned: number
       completed: number
-      achievements: Array<{ id: string; title: string; description: string; thresholdLabel: string; unlocked: boolean }>
       savings: ChildState['savings']
+      achievements: Array<{ id: string; title: string; description: string; thresholdLabel: string; unlocked: boolean }>
     }
   >
   summary: {
@@ -924,20 +1079,21 @@ function DashboardView({
 }) {
   return (
     <section className="space-y-4 sm:space-y-5">
-      <div className="rounded-[32px] border border-brand-border/70 bg-white/92 p-4 shadow-soft backdrop-blur sm:p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="max-w-3xl">
+      <div className="rounded-[34px] border border-brand-border/70 bg-white/92 p-4 shadow-soft backdrop-blur sm:p-5">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] lg:items-start">
+          <div>
             <p className="inline-flex rounded-full bg-brand-sunSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#8a6a00]">
-              Rodzinny panel
+              Rodzinny snapshot
             </p>
             <h1 className="mt-3 font-display text-3xl leading-tight tracking-tight text-brand-ink sm:text-5xl">
-              Dwie tablice, jedna spokojna codzienność.
+              Dwie osobne historie. Jedna spokojna codzienność.
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
-              Wszystko, czego potrzebuje rodzic: zadania dzieci, skarbonki, plusy, minusy i historia działań.
+              Julcia i Oliwcia mają własne światy, własne skarbonki i własny rytm. Rodzic widzi wszystko w jednym miejscu, bez biurowego chaosu.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:min-w-[360px] sm:grid-cols-3">
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <StatTile label="Saldo razem" value={formatMoney(summary.balance)} tone="mint" />
             <StatTile label="Aktywne" value={String(summary.active)} tone="sky" />
             <StatTile label="Osiągnięcia" value={String(summary.unlocked)} tone="sun" />
@@ -947,7 +1103,7 @@ function DashboardView({
 
       <div className="grid gap-4 xl:grid-cols-2">
         {items.map((item) => (
-          <DashboardChildCard key={item.id} item={item} onOpenChild={onOpenChild} />
+          <DashboardChildCard key={item.childId} item={item} onOpenChild={onOpenChild} />
         ))}
       </div>
     </section>
@@ -959,29 +1115,30 @@ function DashboardChildCard({
   onOpenChild,
 }: {
   item: ChildMeta & {
+    childId: ChildId
     activeTasks: number
     pluses: number
     minuses: number
     balance: number
     earned: number
     completed: number
-    achievements: Array<{ id: string; title: string; description: string; thresholdLabel: string; unlocked: boolean }>
     savings: ChildState['savings']
+    achievements: Array<{ id: string; title: string; description: string; thresholdLabel: string; unlocked: boolean }>
   }
   onOpenChild: (childId: ChildId) => void
 }) {
-  const recentSavings = item.savings.slice(0, 2)
-  const childTone = item.id === 'julia' ? 'from-[#dcfbf0] via-[#effcf7] to-white' : 'from-[#eaf5ff] via-[#f4faff] to-white'
+  const theme = childThemes[item.childId]
+  const recentSavings = item.savings.slice(0, 3)
 
   return (
-    <article className="overflow-hidden rounded-[34px] border border-brand-border/70 bg-white/96 shadow-soft">
-      <div className="grid gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <div className={`relative flex min-h-[260px] flex-col justify-between overflow-hidden bg-gradient-to-br ${childTone} p-5 sm:p-6`}>
-          <div className="absolute -left-10 top-10 h-28 w-28 rounded-full blur-3xl" style={{ background: item.accentRing }} />
-          <div className="absolute -right-8 bottom-8 h-24 w-24 rounded-full bg-white/50 blur-2xl" />
+    <article className="overflow-hidden rounded-[36px] border border-brand-border/70 bg-white/96 shadow-soft">
+      <div className={`grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)] bg-gradient-to-br ${theme.gradient}`}>
+        <div className="relative flex min-h-[290px] flex-col justify-between overflow-hidden p-5 sm:p-6">
+          <div className="absolute -left-10 top-10 h-32 w-32 rounded-full blur-3xl" style={{ background: theme.glow }} />
+          <div className="absolute -right-5 bottom-4 h-24 w-24 rounded-full bg-white/50 blur-2xl" />
 
           <div className="relative flex items-start justify-between gap-3">
-            <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: item.accentSoft, color: item.accentStrong }}>
+            <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: theme.accentSoft, color: theme.accentStrong }}>
               {item.name}
             </div>
             <div className="rounded-full bg-white/90 p-2 text-brand-ink shadow-soft">
@@ -990,16 +1147,16 @@ function DashboardChildCard({
           </div>
 
           <div className="relative flex flex-1 items-center justify-center py-6">
-            <div className="relative flex h-40 w-40 items-center justify-center rounded-[42px] bg-white shadow-soft">
+            <div className="relative flex h-44 w-44 items-center justify-center rounded-[44px] bg-white shadow-soft">
               <div className="absolute -left-3 top-4 h-4 w-4 rounded-full bg-brand-sun opacity-80" />
               <div className="absolute right-4 top-5 h-3 w-3 rounded-full bg-brand-coral opacity-80" />
               <div className="absolute bottom-4 left-5 h-2.5 w-2.5 rounded-full bg-brand-sky opacity-80" />
               <div className="text-center">
-                <div className="font-display text-6xl leading-none text-brand-ink">{childInitial(item.id)}</div>
-                <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: item.accentStrong }}>
-                  {childLabel(item.id)}
+                <div className="font-display text-6xl leading-none text-brand-ink">{item.name.startsWith('J') ? 'J' : 'O'}</div>
+                <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: theme.accentStrong }}>
+                  {item.name}
                 </p>
-                <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: item.accentStrong }} />
+                <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: theme.accentStrong }} />
               </div>
             </div>
           </div>
@@ -1019,8 +1176,8 @@ function DashboardChildCard({
         <div className="p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: item.accentSoft, color: item.accentStrong }}>
-                {item.id === 'julia' ? 'Julia' : 'Oliwia'}
+              <p className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: theme.accentSoft, color: theme.accentStrong }}>
+                {theme.badge}
               </p>
               <p className="mt-2 text-sm leading-6 text-brand-muted">{item.description}</p>
             </div>
@@ -1039,10 +1196,11 @@ function DashboardChildCard({
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => onOpenChild(item.id)}
-              className="inline-flex min-w-[180px] flex-1 items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:translate-y-[-1px]"
+              onClick={() => onOpenChild(item.childId)}
+              className="inline-flex min-w-[190px] flex-1 items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:translate-y-[-1px]"
             >
-              Przejdź do tablicy {childName(item.id)}
+              Przejdź do świata {childGenitive(item.childId)}
+              <ChevronRightIcon className="h-4 w-4" />
             </button>
             <div className="rounded-full bg-brand-page px-4 py-3 text-sm font-semibold text-brand-muted">
               {item.completed} wykonanych
@@ -1050,7 +1208,7 @@ function DashboardChildCard({
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <MiniListCard title="Historia wpływów" icon={<CoinsIcon className="h-4 w-4" />}>
+            <MiniListCard title="Historia wpływów" icon={<CoinsIcon className="h-4 w-4" />} compact={false}>
               {recentSavings.map((event) => (
                 <li key={event.id} className="flex items-center justify-between gap-3 text-sm">
                   <span className="truncate text-brand-muted">{event.title}</span>
@@ -1061,7 +1219,7 @@ function DashboardChildCard({
                 </li>
               ))}
             </MiniListCard>
-            <MiniListCard title="Cele" icon={<TrophyIcon className="h-4 w-4" />}>
+            <MiniListCard title="Osiągnięcia" icon={<TrophyIcon className="h-4 w-4" />} compact={false}>
               {item.achievements.filter((achievement) => achievement.unlocked).slice(0, 2).map((achievement) => (
                 <li key={achievement.id} className="truncate text-sm text-brand-muted">
                   {achievement.title}
@@ -1078,26 +1236,24 @@ function DashboardChildCard({
 function ChildBoardView({
   child,
   meta,
-  activeChild,
+  parentUnlocked,
+  onOpenParentUnlock,
   onSwitchChild,
   onOpenTask,
   onCompleteTask,
   onReactivateTask,
-  onCopyTask,
-  onDeleteTask,
   onPresetAction,
   onOpenHistory,
   onOpenSettings,
 }: {
   child: ChildState
   meta: ChildMeta
-  activeChild: ChildId
+  parentUnlocked: boolean
+  onOpenParentUnlock: () => void
   onSwitchChild: (childId: ChildId) => void
-  onOpenTask: (mode: 'add' | 'edit', taskId?: string) => void
+  onOpenTask: (mode: 'add' | 'edit', taskId?: string, seed?: Partial<TaskFormValues>) => void
   onCompleteTask: (taskId: string) => void
   onReactivateTask: (taskId: string) => void
-  onCopyTask: (taskId: string) => void
-  onDeleteTask: (taskId: string) => void
   onPresetAction: (kind: 'plus' | 'minus', preset: ActionPreset) => void
   onOpenHistory: () => void
   onOpenSettings: () => void
@@ -1105,20 +1261,20 @@ function ChildBoardView({
   const activeTasks = sortTasks(child.tasks.filter((task) => task.status !== 'done'))
   const doneTasks = sortTasks(child.tasks.filter((task) => task.status === 'done'))
   const achievements = getChildAchievements(child)
-  const childAccent = meta.id === 'julia' ? 'from-[#e8fbf3] via-[#f5fdf8] to-white' : 'from-[#ecf6ff] via-[#f6fbff] to-white'
+  const theme = childThemes[meta.id]
 
   return (
     <section className="space-y-5">
-      <article className="overflow-hidden rounded-[34px] border border-brand-border/70 bg-white/96 shadow-soft">
-        <div className={`bg-gradient-to-br ${childAccent}`}>
+      <article className="overflow-hidden rounded-[36px] border border-brand-border/70 bg-white/96 shadow-soft">
+        <div className={`bg-gradient-to-br ${theme.gradient}`}>
           <div className="flex flex-col gap-4 p-4 sm:p-5 lg:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="inline-flex rounded-full bg-brand-coralSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#b65b4f]">
-                Tablica dziecka
+                Świat dziecka
               </div>
               <div className="flex gap-2">
                 {childOrder.map((childId) => {
-                  const selected = childId === activeChild
+                  const selected = childId === meta.id
                   return (
                     <button
                       key={childId}
@@ -1129,66 +1285,39 @@ function ChildBoardView({
                         selected ? 'bg-brand-ink text-white shadow-pop' : 'bg-white/85 text-brand-muted',
                       )}
                     >
-                      {childLabel(childId)}
+                      {childDisplayName(childId)}
                     </button>
                   )
                 })}
               </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
+            <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
               <div className="flex items-center justify-center">
-                <div className="relative flex h-40 w-40 items-center justify-center rounded-[42px] bg-white/90 shadow-soft">
+                <div className="relative flex h-40 w-40 items-center justify-center rounded-[44px] bg-white/90 shadow-soft">
                   <div className="absolute -left-4 top-5 h-4 w-4 rounded-full bg-brand-sun opacity-70" />
                   <div className="absolute right-5 top-5 h-3.5 w-3.5 rounded-full bg-brand-coral opacity-70" />
                   <div className="absolute bottom-5 left-5 h-2.5 w-2.5 rounded-full bg-brand-sky opacity-70" />
                   <div className="text-center">
-                    <div className="font-display text-6xl leading-none text-brand-ink">{childInitial(meta.id)}</div>
-                    <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: meta.accentStrong }}>
+                    <div className="font-display text-6xl leading-none text-brand-ink">{meta.id === 'julia' ? 'J' : 'O'}</div>
+                    <p className="mt-2 text-sm font-black uppercase tracking-[0.22em]" style={{ color: theme.accentStrong }}>
                       {meta.name}
                     </p>
-                    <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: meta.accentStrong }} />
+                    <PiggyIcon className="mx-auto mt-3 h-11 w-11" style={{ color: theme.accentStrong }} />
                   </div>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: meta.accentSoft, color: meta.accentStrong }}>
-                  {meta.id === 'julia' ? 'Julia' : 'Oliwia'}
+                <div className="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.24em]" style={{ background: theme.accentSoft, color: theme.accentStrong }}>
+                {theme.badge}
                 </div>
-                <h2 className="font-display text-4xl tracking-tight text-brand-ink">{meta.name}</h2>
+                <h2 className="font-display text-4xl tracking-tight text-brand-ink">W świecie {meta.name}</h2>
                 <p className="max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
-                  Zadbaj o obowiązki, nagrody i konsekwencje. Statusy zmieniają się płynnie, a skarbonka rośnie automatycznie po wykonaniu zadania.
+                  Skarbonka jest tutaj najważniejsza. Zadania są kartami, a rodzic odblokowuje akcje tylko na chwilę.
                 </p>
 
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onOpenTask('add')}
-                    className="inline-flex items-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                    Dodaj zadanie
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPresetAction('plus', PLUS_PRESETS[0])}
-                    className="inline-flex items-center gap-2 rounded-full bg-brand-mintSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                    Przyznaj plus
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPresetAction('minus', MINUS_PRESETS[0])}
-                    className="inline-flex items-center gap-2 rounded-full bg-brand-coralSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
-                  >
-                    <MinusIcon className="h-4 w-4" />
-                    Przyznaj minus
-                  </button>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-4">
                   <div className="rounded-[24px] bg-white/90 px-4 py-3 shadow-soft">
                     <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Saldo skarbonki</p>
                     <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">{formatMoney(child.balance)}</p>
@@ -1203,37 +1332,150 @@ function ChildBoardView({
                       {child.pluses}/{child.minuses}
                     </p>
                   </div>
+                  <div className="rounded-[24px] bg-white/90 px-4 py-3 shadow-soft">
+                    <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Dni aktywne</p>
+                    <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">{child.activeDays}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[28px] bg-white/90 p-4 shadow-soft">
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Skarbonka</p>
+                    <div className="mt-3 rounded-[24px] bg-brand-ink p-4 text-white shadow-pop">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-white/70">Aktualne saldo</p>
+                      <p className="mt-2 font-display text-4xl tracking-tight">{formatMoney(child.balance)}</p>
+                      <p className="mt-3 text-sm leading-6 text-white/78">Po zatwierdzeniu zadania kwota trafia bezpośrednio do salda Julci lub Oliwci.</p>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl bg-brand-mintSoft px-3 py-3">
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Zarobione</p>
+                        <p className="mt-1 font-display text-2xl text-brand-ink">{formatMoney(child.totalEarned)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-brand-skySoft px-3 py-3">
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Dni aktywne</p>
+                        <p className="mt-1 font-display text-2xl text-brand-ink">{child.activeDays}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[28px] bg-white/90 p-4 shadow-soft">
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Progres</p>
+                    <div className="mt-3 space-y-3">
+                      <ProgressStrip label="Wykonane zadania" value={completedTaskCount(child)} max={10} tone="mint" />
+                      <ProgressStrip label="Plusy" value={child.pluses} max={10} tone="sun" />
+                      <ProgressStrip label="Minuty aktywności" value={child.activeDays} max={7} tone="sky" />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
-        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile label="Saldo" value={formatMoney(child.balance)} tone="mint" />
-          <StatTile label="Aktywne" value={String(activeTasks.length)} tone="sky" />
-          <StatTile label="Plusy" value={String(child.pluses)} tone="sun" />
-          <StatTile label="Minusy" value={String(child.minuses)} tone="coral" />
-        </div>
       </article>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_360px]">
         <div className="space-y-4">
-          <section className="rounded-[34px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
+          <section className="rounded-[36px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Zadania</p>
-                <h3 className="mt-1 font-display text-2xl text-brand-ink">Aktywne i wykonane</h3>
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Sterowanie</p>
+                <h3 className="mt-1 font-display text-2xl text-brand-ink">Szybkie akcje rodzica</h3>
               </div>
               <div className="rounded-full bg-brand-page px-4 py-2 text-sm font-semibold text-brand-muted">
                 {activeTasks.length} aktywnych, {doneTasks.length} wykonanych
               </div>
             </div>
 
+            {parentUnlocked ? (
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() => onOpenTask('add')}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    Dodaj zadanie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPresetAction('plus', PLUS_PRESETS[0])}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-mintSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                    Przyznaj plus
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPresetAction('minus', MINUS_PRESETS[0])}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-coralSoft px-5 py-3 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
+                  >
+                    <MinusIcon className="h-4 w-4" />
+                    Przyznaj minus
+                  </button>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  {TASK_PRESETS.map((preset) => (
+                    <button
+                      key={preset.title}
+                      type="button"
+                      onClick={() =>
+                        onOpenTask('add', undefined, {
+                          title: preset.title,
+                          description: preset.description,
+                          reward: String(preset.reward),
+                          frequency: preset.frequency,
+                          status: 'todo',
+                        })
+                      }
+                      className="rounded-[24px] border border-brand-border/70 bg-white px-4 py-3 text-left shadow-soft transition hover:-translate-y-0.5"
+                    >
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">Gotowe zadanie</p>
+                      <p className="mt-1 font-display text-xl text-brand-ink">{preset.title}</p>
+                      <p className="mt-2 text-sm text-brand-muted">{preset.reward} zł · {taskFrequencyLabel(preset.frequency).toLowerCase()}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-[28px] border border-dashed border-brand-border bg-brand-page p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="max-w-2xl">
+                    <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Tryb dziecka</p>
+                    <h4 className="mt-1 font-display text-2xl text-brand-ink">Rodzic odblokowuje akcje na chwilę</h4>
+                    <p className="mt-2 text-sm leading-6 text-brand-muted">
+                      Dodawanie, zatwierdzanie, plusy, minusy i przywracanie zadań są zablokowane, dopóki rodzic nie poda hasła.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onOpenParentUnlock}
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop"
+                  >
+                    <LockIcon className="h-4 w-4" />
+                    Odblokuj rodzica
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-[36px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Zadania</p>
+                <h3 className="mt-1 font-display text-2xl text-brand-ink">Kafelki zamiast listy administracyjnej</h3>
+              </div>
+              <div className="rounded-full bg-brand-page px-4 py-2 text-sm font-semibold text-brand-muted">
+                {activeTasks.length} aktywnych
+              </div>
+            </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => onOpenHistory()}
+                onClick={onOpenHistory}
                 className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
               >
                 <HistoryIcon className="h-4 w-4" />
@@ -1241,7 +1483,7 @@ function ChildBoardView({
               </button>
               <button
                 type="button"
-                onClick={() => onOpenSettings()}
+                onClick={onOpenSettings}
                 className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink transition hover:-translate-y-0.5"
               >
                 <SettingsIcon className="h-4 w-4" />
@@ -1254,11 +1496,10 @@ function ChildBoardView({
                 <TaskCard
                   key={task.id}
                   task={task}
+                  parentUnlocked={parentUnlocked}
                   onComplete={() => onCompleteTask(task.id)}
                   onReactivate={() => onReactivateTask(task.id)}
-                  onCopy={() => onCopyTask(task.id)}
                   onEdit={() => onOpenTask('edit', task.id)}
-                  onDelete={() => onDeleteTask(task.id)}
                 />
               ))}
             </div>
@@ -1268,7 +1509,7 @@ function ChildBoardView({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Wykonane</p>
-                    <p className="mt-1 font-semibold text-brand-ink">{doneTasks.length} gotowych do przywrócenia lub kopiowania</p>
+                    <p className="mt-1 font-semibold text-brand-ink">{doneTasks.length} gotowych do przywrócenia</p>
                   </div>
                 </div>
                 <div className="mt-3 space-y-3">
@@ -1276,12 +1517,11 @@ function ChildBoardView({
                     <TaskCard
                       key={task.id}
                       task={task}
+                      parentUnlocked={parentUnlocked}
                       completed
                       onComplete={() => onCompleteTask(task.id)}
                       onReactivate={() => onReactivateTask(task.id)}
-                      onCopy={() => onCopyTask(task.id)}
                       onEdit={() => onOpenTask('edit', task.id)}
-                      onDelete={() => onDeleteTask(task.id)}
                     />
                   ))}
                 </div>
@@ -1291,13 +1531,13 @@ function ChildBoardView({
         </div>
 
         <aside className="space-y-4">
-          <article className="rounded-[34px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
+          <article className="rounded-[36px] border border-brand-border/70 bg-white/96 p-4 shadow-soft sm:p-5">
             <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Skarbonka</p>
             <h3 className="mt-1 font-display text-2xl tracking-tight text-brand-ink">Saldo i wzrost</h3>
             <div className="mt-4 rounded-[28px] bg-brand-ink p-5 text-white shadow-pop">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-white/70">Aktualne saldo</p>
               <p className="mt-2 font-display text-4xl tracking-tight">{formatMoney(child.balance)}</p>
-              <p className="mt-3 text-sm leading-6 text-white/75">Każde zadanie oznaczone jako wykonane automatycznie dodaje przypisaną kwotę do salda.</p>
+              <p className="mt-3 text-sm leading-6 text-white/75">Każde wykonane zadanie z automatu zasila skarbonkę dziecka.</p>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-2xl bg-brand-mintSoft px-3 py-3">
@@ -1305,17 +1545,9 @@ function ChildBoardView({
                 <p className="mt-1 font-display text-2xl text-brand-ink">{formatMoney(child.totalEarned)}</p>
               </div>
               <div className="rounded-2xl bg-brand-skySoft px-3 py-3">
-                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Dni aktywne</p>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">Aktywne dni</p>
                 <p className="mt-1 font-display text-2xl text-brand-ink">{child.activeDays}</p>
               </div>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={onOpenHistory} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
-                Historia
-              </button>
-              <button type="button" onClick={onOpenSettings} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
-                Ustawienia
-              </button>
             </div>
           </article>
 
@@ -1352,29 +1584,19 @@ function ChildBoardView({
             ))}
           </MiniListCard>
 
-          <MiniListCard title="Zadania dziecka" icon={<TaskIcon className="h-4 w-4" />} compact={false}>
-            {child.tasks.slice(0, 4).map((task) => (
-              <li key={task.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-brand-ink">{task.title}</p>
-                  <p className="text-xs text-brand-muted">
-                    {taskFrequencyLabel(task.frequency)} · {formatMoney(task.reward)}
-                  </p>
-                </div>
-                <span
-                  className={cx(
-                    'rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em]',
-                    task.status === 'done'
-                      ? 'bg-brand-mintSoft text-brand-ink'
-                      : task.status === 'progress'
-                        ? 'bg-brand-skySoft text-brand-ink'
-                        : 'bg-brand-sunSoft text-brand-ink',
-                  )}
-                >
-                  {task.status === 'done' ? 'Wykonane' : task.status === 'progress' ? 'W trakcie' : 'Do wykonania'}
-                </span>
-              </li>
-            ))}
+          <MiniListCard title="Ostatnie nagrody" icon={<SparkIcon className="h-4 w-4" />} compact={false}>
+            {child.history
+              .filter((entry) => entry.category === 'reward')
+              .slice(0, 4)
+              .map((entry) => (
+                <li key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-brand-ink">{entry.title}</p>
+                    <p className="text-xs text-brand-muted">{entry.detail}</p>
+                  </div>
+                  <span className="font-display text-lg text-brand-ink">{typeof entry.amount === 'number' ? formatMoney(entry.amount) : '—'}</span>
+                </li>
+              ))}
           </MiniListCard>
         </aside>
       </div>
@@ -1385,36 +1607,28 @@ function ChildBoardView({
 function TaskCard({
   task,
   completed,
+  parentUnlocked,
   onComplete,
   onReactivate,
-  onCopy,
   onEdit,
-  onDelete,
 }: {
   task: Task
   completed?: boolean
+  parentUnlocked: boolean
   onComplete: () => void
   onReactivate: () => void
-  onCopy: () => void
   onEdit: () => void
-  onDelete: () => void
 }) {
-  const statusClass =
-    task.status === 'done'
-      ? 'bg-brand-mintSoft text-brand-ink'
-      : task.status === 'progress'
-        ? 'bg-brand-skySoft text-brand-ink'
-        : 'bg-brand-sunSoft text-brand-ink'
+  const statusClass = taskStatusTone(task.status)
+  const chipClass = taskFrequencyTone(task.frequency)
 
   return (
-    <article className={cx('rounded-[28px] border p-4 shadow-[0_8px_20px_rgba(29,76,56,0.06)]', completed ? 'border-brand-border bg-white' : 'border-brand-border/70 bg-white/95')}>
+    <article className={cx('rounded-[30px] border p-4 shadow-[0_8px_20px_rgba(29,76,56,0.06)]', completed ? 'border-brand-border bg-white' : 'border-brand-border/70 bg-white/95')}>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={cx('rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em]', statusClass)}>
-              {task.status === 'done' ? 'Wykonane' : task.status === 'progress' ? 'W trakcie' : 'Do wykonania'}
-            </span>
-            <span className="rounded-full bg-brand-page px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-brand-muted">
+            <span className={cx('rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em]', statusClass)}>{taskStatusLabel(task.status)}</span>
+            <span className={cx('rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em]', chipClass)}>
               {taskFrequencyLabel(task.frequency)}
             </span>
             {task.frequency !== 'once' ? (
@@ -1424,11 +1638,16 @@ function TaskCard({
             ) : null}
           </div>
 
-          <div>
-            <h4 className={cx('font-display text-2xl tracking-tight', completed ? 'text-brand-muted line-through decoration-brand-coral/60' : 'text-brand-ink')}>
-              {task.title}
-            </h4>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-muted">{task.description}</p>
+          <div className="flex gap-3">
+            <div className={cx('flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl', completed ? 'bg-brand-page' : 'bg-brand-mintSoft')}>
+              <TaskIcon className="h-6 w-6 text-brand-ink" />
+            </div>
+            <div className="min-w-0">
+              <h4 className={cx('font-display text-2xl tracking-tight', completed ? 'text-brand-muted line-through decoration-brand-coral/60' : 'text-brand-ink')}>
+                {task.title}
+              </h4>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-muted">{task.description}</p>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2 text-sm text-brand-muted">
@@ -1441,29 +1660,58 @@ function TaskCard({
           {task.status === 'done' ? (
             <button type="button" onClick={onReactivate} className="inline-flex items-center gap-2 rounded-full bg-brand-skySoft px-4 py-2.5 text-sm font-bold text-brand-ink">
               <UndoIcon className="h-4 w-4" />
-              Przywróć
+              {parentUnlocked ? 'Przywróć' : 'Odblokuj rodzica'}
             </button>
           ) : (
             <button type="button" onClick={onComplete} className="inline-flex items-center gap-2 rounded-full bg-brand-mintSoft px-4 py-2.5 text-sm font-bold text-brand-ink">
               <CheckIcon className="h-4 w-4" />
-              Wykonane
+              {parentUnlocked ? 'Zatwierdź' : 'Zablokowane'}
             </button>
           )}
-          <button type="button" onClick={onCopy} className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink">
-            <CopyIcon className="h-4 w-4" />
-            Kopiuj
-          </button>
-          <button type="button" onClick={onEdit} className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink">
-            <EditIcon className="h-4 w-4" />
-            Edytuj
-          </button>
-          <button type="button" onClick={onDelete} className="inline-flex items-center gap-2 rounded-full bg-brand-coralSoft px-4 py-2.5 text-sm font-bold text-brand-ink">
-            <TrashIcon className="h-4 w-4" />
-            Usuń
-          </button>
+
+          {parentUnlocked ? (
+            <button type="button" onClick={onEdit} className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-ink">
+              <EditIcon className="h-4 w-4" />
+              Edytuj
+            </button>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-full bg-brand-page px-4 py-2.5 text-sm font-bold text-brand-muted">
+              <LockIcon className="h-4 w-4" />
+              Tylko rodzic
+            </div>
+          )}
         </div>
       </div>
     </article>
+  )
+}
+
+function ProgressStrip({
+  label,
+  value,
+  max,
+  tone,
+}: {
+  label: string
+  value: number
+  max: number
+  tone: 'mint' | 'sky' | 'sun'
+}) {
+  const pct = Math.min(100, Math.round((value / max) * 100))
+  const track = tone === 'mint' ? 'bg-brand-mintSoft' : tone === 'sky' ? 'bg-brand-skySoft' : 'bg-brand-sunSoft'
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-brand-ink">{label}</p>
+        <p className="text-sm font-bold text-brand-muted">
+          {value}/{max}
+        </p>
+      </div>
+      <div className={cx('h-3 overflow-hidden rounded-full', track)}>
+        <div className={cx('h-full rounded-full', tone === 'mint' ? 'bg-brand-mint' : tone === 'sky' ? 'bg-brand-sky' : 'bg-brand-sun')} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   )
 }
 
@@ -1479,7 +1727,7 @@ function HistoryView({
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
-        <div className="rounded-[30px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
+        <div className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
           <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-brand-skySoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#165d94]">
             <FilterIcon className="h-4 w-4" />
             Historia
@@ -1539,7 +1787,7 @@ function HistoryRow({
           : 'bg-brand-skySoft text-brand-ink'
 
   return (
-    <article className="rounded-[28px] border border-brand-border/70 bg-white/95 p-4 shadow-[0_8px_20px_rgba(29,76,56,0.06)]">
+    <article className="rounded-[30px] border border-brand-border/70 bg-white/95 p-4 shadow-[0_8px_20px_rgba(29,76,56,0.06)]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <div className={cx('mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl', tone)}>
@@ -1549,7 +1797,7 @@ function HistoryRow({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold text-brand-ink">{entry.title}</h3>
               <span className="rounded-full bg-brand-page px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">
-                {entry.childId === 'julia' ? 'Julia' : 'Oliwia'}
+                {entry.childId === 'julia' ? 'Julcia' : 'Oliwcia'}
               </span>
               <span className="rounded-full bg-brand-page px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-brand-muted">
                 {historyCategoryLabel(entry.category)}
@@ -1568,72 +1816,93 @@ function HistoryRow({
 }
 
 function SettingsView({
-  settingsTick,
+  parentUnlocked,
+  parentRole,
+  onOpenParentUnlock,
   onReset,
 }: {
-  settingsTick: number
+  parentUnlocked: boolean
+  parentRole: ParentRole | null
+  onOpenParentUnlock: () => void
   onReset: () => void
 }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
-        <div className="rounded-[30px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
+        <div className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
           <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-brand-coralSoft px-4 py-2 text-xs font-black uppercase tracking-[0.28em] text-[#a64a39]">
             <SettingsIcon className="h-4 w-4" />
             Ustawienia rodzica
           </p>
-          <h1 className="font-display text-3xl tracking-tight text-brand-ink sm:text-5xl">Potwierdzanie nadal działa.</h1>
+          <h1 className="font-display text-3xl tracking-tight text-brand-ink sm:text-5xl">Tryb rodzica i LocalStorage.</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-muted sm:text-lg">
-            Działania administracyjne wymagają potwierdzenia hasłem Mama albo Tata. Dane zapisują się lokalnie w przeglądarce.
+            Działania administracyjne są widoczne i bezpieczne. Jednorazowe odblokowanie trwa 10 minut i można je zatrzymać ręcznie.
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
           <StatTile label="Mama" value="Hasło" tone="coral" />
           <StatTile label="Tata" value="Hasło" tone="sky" />
-          <StatTile label="LocalStorage" value={`V2 · ${settingsTick}`} tone="mint" />
+          <StatTile label="LocalStorage" value="V3" tone="mint" />
         </div>
 
-        <div className="rounded-[30px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
+        <div className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-brand-page p-3">
               <ParentIcon className="h-6 w-6 text-brand-ink" />
             </div>
             <div>
               <h2 className="font-display text-2xl text-brand-ink">Co jest chronione?</h2>
-              <p className="text-sm text-brand-muted">Dodawanie, usuwanie i korekty finansowe.</p>
+              <p className="text-sm text-brand-muted">Dodawanie, zatwierdzanie, plusy, minusy i przywracanie zadań.</p>
             </div>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <MiniListCard title="Akcje" icon={<LockIcon className="h-4 w-4" />}>
               <li>Dodawanie i edycja zadania</li>
-              <li>Usuwanie zadania</li>
+              <li>Zatwierdzanie wykonania</li>
               <li>Plusy i minusy</li>
+              <li>Przywracanie wykonanych zadań</li>
             </MiniListCard>
             <MiniListCard title="Dane" icon={<SparkIcon className="h-4 w-4" />}>
               <li>LocalStorage</li>
-              <li>Synchronizacja po odświeżeniu</li>
-              <li>Migracja z v1</li>
+              <li>Odświeżenie zachowuje stan</li>
+              <li>Wersjonowany model danych</li>
             </MiniListCard>
           </div>
         </div>
       </div>
 
       <aside className="space-y-4">
-        <div className="rounded-[30px] border border-brand-border/70 bg-brand-ink p-4 text-white shadow-pop sm:p-5">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-white/70">Reset</p>
-          <p className="mt-2 font-display text-3xl tracking-tight">Gotowe do odświeżenia danych demo.</p>
-          <p className="mt-2 text-sm leading-6 text-white/75">Przywrócenie nie wymaga ręcznego czyszczenia LocalStorage.</p>
-          <button
-            type="button"
-            onClick={onReset}
-            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-coralSoft px-5 py-4 text-sm font-bold text-brand-ink"
-          >
-            <UndoIcon className="h-4 w-4" />
-            Przywróć dane demo
-          </button>
-        </div>
+        {parentUnlocked ? (
+          <div className="rounded-[34px] border border-brand-mint/30 bg-brand-ink p-4 text-white shadow-pop sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-white/70">Tryb aktywny</p>
+            <p className="mt-2 font-display text-3xl tracking-tight">{parentRole ?? 'Mama'}</p>
+            <p className="mt-2 text-sm leading-6 text-white/75">Możesz dodać zadanie, zatwierdzić wykonanie lub przyznać plus i minus.</p>
+            <button
+              type="button"
+              onClick={onReset}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-coralSoft px-5 py-4 text-sm font-bold text-brand-ink"
+            >
+              <UndoIcon className="h-4 w-4" />
+              Przywróć dane demo
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-[34px] border border-brand-border/70 bg-white/90 p-4 shadow-soft sm:p-5">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Tryb dziecka</p>
+            <p className="mt-2 font-display text-3xl tracking-tight text-brand-ink">Najpierw odblokuj rodzica.</p>
+            <p className="mt-2 text-sm leading-6 text-brand-muted">Bez aktywnego rodzica nie da się zatwierdzać zadań ani zmieniać wartości nagród.</p>
+            <button
+              type="button"
+              onClick={onOpenParentUnlock}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-4 text-sm font-bold text-white shadow-pop"
+            >
+              <LockIcon className="h-4 w-4" />
+              Odblokuj rodzica
+            </button>
+          </div>
+        )}
       </aside>
     </section>
   )
@@ -1642,40 +1911,71 @@ function SettingsView({
 function TaskModal({
   state,
   draft,
+  meta,
   onClose,
   onSubmit,
 }: {
   state: AppState
   draft: TaskDraft
+  meta: ChildMeta
   onClose: () => void
-  onSubmit: (values: TaskFormValues, role: ParentRole) => void
+  onSubmit: (values: TaskFormValues) => void
 }) {
   const task = draft.taskId ? state.children[draft.childId].tasks.find((entry) => entry.id === draft.taskId) ?? null : null
-  const [role, setRole] = useState<ParentRole>('Mama')
-  const [secret, setSecret] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [values, setValues] = useState<TaskFormValues>(() => ({
-    title: task?.title ?? '',
-    description: task?.description ?? '',
-    reward: task ? String(task.reward) : '5',
-    frequency: task?.frequency ?? 'daily',
-    status: task?.status ?? 'todo',
-  }))
+  const [values, setValues] = useState<TaskFormValues>(() => {
+    const base = {
+      title: task?.title ?? '',
+      description: task?.description ?? '',
+      reward: task ? String(task.reward) : '5',
+      frequency: task?.frequency ?? 'daily',
+      status: task?.status ?? 'todo',
+    }
+
+    return {
+      ...base,
+      ...draft.seed,
+      reward: draft.seed?.reward ?? base.reward,
+      frequency: draft.seed?.frequency ?? base.frequency,
+      status: draft.seed?.status ?? base.status,
+      title: draft.seed?.title ?? base.title,
+      description: draft.seed?.description ?? base.description,
+    }
+  })
 
   return (
-    <ModalShell
-      title={draft.mode === 'add' ? 'Dodaj zadanie' : 'Edytuj zadanie'}
-      onClose={onClose}
-    >
+    <ModalShell title={draft.mode === 'add' ? 'Dodaj zadanie' : 'Edytuj zadanie'} onClose={onClose}>
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
         <section className="space-y-4">
+          {draft.mode === 'add' ? (
+            <div className="rounded-[28px] bg-brand-page p-4">
+              <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Gotowe propozycje</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {TASK_PRESETS.map((preset) => (
+                  <button
+                    key={preset.title}
+                    type="button"
+                    onClick={() =>
+                      setValues({
+                        title: preset.title,
+                        description: preset.description,
+                        reward: String(preset.reward),
+                        frequency: preset.frequency,
+                        status: 'todo',
+                      })
+                    }
+                    className="rounded-2xl bg-white px-3 py-3 text-left shadow-soft transition hover:-translate-y-0.5"
+                  >
+                    <p className="font-semibold text-brand-ink">{preset.title}</p>
+                    <p className="mt-1 text-xs text-brand-muted">{preset.reward} zł · {taskFrequencyLabel(preset.frequency).toLowerCase()}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <Field>
             <FieldLabel>Nazwa</FieldLabel>
-            <FieldInput
-              value={values.title}
-              onChange={(event) => setValues((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Posprzątanie pokoju"
-            />
+            <FieldInput value={values.title} onChange={(event) => setValues((current) => ({ ...current, title: event.target.value }))} placeholder="Posprzątanie pokoju" />
           </Field>
 
           <Field>
@@ -1700,17 +2000,22 @@ function TaskModal({
             </Field>
             <Field>
               <FieldLabel>Częstotliwość</FieldLabel>
-              <select
-                value={values.frequency}
-                onChange={(event) => setValues((current) => ({ ...current, frequency: event.target.value as TaskFrequency }))}
-                className="h-12 w-full rounded-2xl border border-brand-border bg-white px-4 text-sm font-semibold text-brand-ink outline-none transition focus:border-brand-ink"
-              >
+              <div className="grid grid-cols-3 gap-2">
                 {TASK_FREQUENCY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setValues((current) => ({ ...current, frequency: option.value }))}
+                    className={cx(
+                      'rounded-2xl px-3 py-3 text-sm font-bold transition',
+                      values.frequency === option.value ? 'bg-brand-ink text-white shadow-pop' : 'bg-brand-page text-brand-muted hover:text-brand-ink',
+                    )}
+                    title={option.detail}
+                  >
                     {option.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
             </Field>
           </div>
 
@@ -1727,12 +2032,91 @@ function TaskModal({
                     values.status === status ? 'bg-brand-ink text-white shadow-pop' : 'bg-brand-page text-brand-muted hover:text-brand-ink',
                   )}
                 >
-                  {status === 'todo' ? 'Do wykonania' : status === 'progress' ? 'W trakcie' : 'Wykonane'}
+                  {taskStatusLabel(status)}
                 </button>
               ))}
             </div>
           </Field>
+        </section>
 
+        <section className="space-y-4">
+          <div className="rounded-[28px] bg-brand-page p-4">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Dziecko</p>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="rounded-2xl bg-white p-3 shadow-soft">
+                <PiggyIcon className="h-6 w-6 text-brand-ink" />
+              </div>
+              <div>
+                <p className="font-display text-2xl text-brand-ink">{meta.name}</p>
+                <p className="text-sm text-brand-muted">{draft.mode === 'add' ? 'Nowe zadanie' : 'Edytowanie zadania'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-brand-border/70 bg-white p-4 shadow-soft">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Podgląd</p>
+            <div className="mt-3 rounded-[24px] bg-brand-ink p-4 text-white">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-white/70">{taskStatusLabel(values.status)}</p>
+              <p className="mt-2 font-display text-3xl tracking-tight">{values.title || 'Nowe zadanie'}</p>
+              <p className="mt-2 text-sm leading-6 text-white/75">{values.description || 'Krótki opis zadania.'}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-bold">{values.reward || '0'} zł</span>
+                <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-bold">{taskFrequencyLabel(values.frequency)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onSubmit(values)
+              }}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-4 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
+            >
+              <CheckIcon className="h-4 w-4" />
+              {draft.mode === 'add' ? 'Dodaj zadanie' : 'Zapisz zmiany'}
+            </button>
+            <p className="mt-3 text-xs leading-5 text-brand-muted">
+              Zadania cykliczne po wykonaniu automatycznie tworzą kolejną instancję.
+            </p>
+          </div>
+        </section>
+      </div>
+    </ModalShell>
+  )
+}
+
+function ParentAuthModal({
+  prompt,
+  onClose,
+  onUnlock,
+}: {
+  prompt: ParentPrompt
+  onClose: () => void
+  onUnlock: (role: ParentRole) => void
+}) {
+  const [role, setRole] = useState<ParentRole>('Mama')
+  const [secret, setSecret] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <ModalShell title={prompt.title} onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="space-y-4">
+          <p className="text-sm leading-6 text-brand-muted sm:text-base">{prompt.description}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(['Mama', 'Tata'] as ParentRole[]).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                onClick={() => setRole(entry)}
+                className={cx(
+                  'rounded-2xl px-4 py-3 text-sm font-bold transition',
+                  role === entry ? 'bg-brand-ink text-white shadow-pop' : 'bg-brand-page text-brand-ink',
+                )}
+              >
+                {entry}
+              </button>
+            ))}
+          </div>
           <Field>
             <FieldLabel>Hasło rodzica</FieldLabel>
             <FieldInput
@@ -1746,29 +2130,6 @@ function TaskModal({
             />
             {error ? <p className="mt-2 text-xs font-semibold text-brand-coral">{error}</p> : null}
           </Field>
-        </section>
-
-        <section className="space-y-4">
-          <div className="rounded-[28px] bg-brand-page p-4">
-            <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Potwierdzenie</p>
-            <p className="mt-2 text-sm leading-6 text-brand-muted">Wybierz hasło rodzica przed zapisem.</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {(['Mama', 'Tata'] as ParentRole[]).map((entry) => (
-                <button
-                  key={entry}
-                  type="button"
-                  onClick={() => setRole(entry)}
-                  className={cx(
-                    'rounded-2xl px-4 py-3 text-sm font-bold transition',
-                    role === entry ? 'bg-brand-ink text-white shadow-pop' : 'bg-white text-brand-ink',
-                  )}
-                >
-                  {entry}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <button
             type="button"
             onClick={() => {
@@ -1777,82 +2138,56 @@ function TaskModal({
                 return
               }
 
-              onSubmit(values, role)
+              onUnlock(role)
             }}
             className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-ink px-5 py-4 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
           >
             <LockIcon className="h-4 w-4" />
-            {draft.mode === 'add' ? 'Dodaj zadanie' : 'Zapisz zmiany'}
+            {prompt.confirmLabel}
           </button>
-          <p className="text-xs leading-5 text-brand-muted">
-            Zadania cykliczne po wykonaniu automatycznie tworzą kolejną instancję.
-          </p>
         </section>
+
+        <aside className="rounded-[28px] bg-brand-page p-4">
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-brand-muted">Tryb rodzica</p>
+          <div className="mt-3 rounded-[24px] bg-white p-4 shadow-soft">
+            <p className="font-display text-3xl text-brand-ink">10 minut bezpiecznego dostępu</p>
+            <p className="mt-2 text-sm leading-6 text-brand-muted">
+              Po aktywacji możesz zatwierdzać zadania, dodawać plusy i minusy oraz edytować wartości.
+            </p>
+          </div>
+          <div className="mt-3 grid gap-2">
+            <div className="rounded-2xl bg-white px-3 py-3 text-sm text-brand-ink shadow-soft">Dodawanie i edycja zadań</div>
+            <div className="rounded-2xl bg-white px-3 py-3 text-sm text-brand-ink shadow-soft">Zatwierdzanie wykonania</div>
+            <div className="rounded-2xl bg-white px-3 py-3 text-sm text-brand-ink shadow-soft">Plusy, minusy, przywracanie</div>
+          </div>
+        </aside>
       </div>
     </ModalShell>
   )
 }
 
-function ActionDialogModal({
+function ConfirmModal({
   dialog,
   onClose,
   onConfirm,
 }: {
-  dialog: ActionDialog
+  dialog: ConfirmDialog
   onClose: () => void
-  onConfirm: (role: ParentRole) => void
+  onConfirm: () => void
 }) {
-  const [role, setRole] = useState<ParentRole>('Mama')
-  const [secret, setSecret] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
   return (
     <ModalShell title={dialog.title} onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm leading-6 text-brand-muted sm:text-base">{dialog.description}</p>
-        <div className="grid grid-cols-2 gap-2">
-          {(['Mama', 'Tata'] as ParentRole[]).map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              onClick={() => setRole(entry)}
-              className={cx(
-                'rounded-2xl px-4 py-3 text-sm font-bold transition',
-                role === entry ? 'bg-brand-ink text-white shadow-pop' : 'bg-brand-page text-brand-ink',
-              )}
-            >
-              {entry}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onClose} className="rounded-full bg-brand-page px-4 py-3 text-sm font-bold text-brand-ink">
+            Anuluj
+          </button>
+          <button type="button" onClick={onConfirm} className="inline-flex items-center gap-2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop">
+            <UndoIcon className="h-4 w-4" />
+            {dialog.confirmLabel}
+          </button>
         </div>
-        <Field>
-          <FieldLabel>Hasło rodzica</FieldLabel>
-          <FieldInput
-            type="password"
-            value={secret}
-            onChange={(event) => {
-              setSecret(event.target.value)
-              setError(null)
-            }}
-            placeholder={`Wpisz ${role}`}
-          />
-          {error ? <p className="mt-2 text-xs font-semibold text-brand-coral">{error}</p> : null}
-        </Field>
-        <button
-          type="button"
-          onClick={() => {
-            if (secret.trim() !== role) {
-              setError('Wpisz dokładnie hasło Mama albo Tata.')
-              return
-            }
-
-            onConfirm(role)
-          }}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-coral px-5 py-4 text-sm font-bold text-white shadow-pop transition hover:-translate-y-0.5"
-        >
-          <LockIcon className="h-4 w-4" />
-          {dialog.confirmLabel}
-        </button>
       </div>
     </ModalShell>
   )
@@ -1886,28 +2221,6 @@ function ModalShell({
   )
 }
 
-function RewardFlashBubble({ flash }: { flash: RewardFlash }) {
-  return (
-    <div className="fixed right-4 top-4 z-50 rounded-[28px] border border-brand-mint/30 bg-brand-ink px-5 py-4 text-white shadow-pop animate-bounce">
-      <p className="text-xs font-black uppercase tracking-[0.28em] text-white/70">Nagroda</p>
-      <p className="mt-1 font-display text-3xl tracking-tight">+{formatMoney(flash.amount)}</p>
-      <p className="mt-1 text-sm text-white/75">{flash.title}</p>
-    </div>
-  )
-}
-
-function Toast({ message }: { message: string }) {
-  return (
-    <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop lg:bottom-6">
-      {message}
-    </div>
-  )
-}
-
-function AppBodyList({ children }: { children: ReactNode }) {
-  return <ul className="space-y-2">{children}</ul>
-}
-
 function MiniListCard({
   title,
   icon,
@@ -1925,7 +2238,7 @@ function MiniListCard({
         <div className="rounded-full bg-brand-page p-2 text-brand-ink">{icon}</div>
         <h3 className="font-display text-2xl text-brand-ink">{title}</h3>
       </div>
-      <AppBodyList>{children}</AppBodyList>
+      <ul className="mt-3 space-y-2">{children}</ul>
     </div>
   )
 }
@@ -1957,7 +2270,7 @@ function StatTile({
 }
 
 function Field({ children }: { children: ReactNode }) {
-  return <label className="block">{children}</label>
+  return <div className="block">{children}</div>
 }
 
 function FieldLabel({ children }: { children: ReactNode }) {
@@ -1991,6 +2304,29 @@ function FieldTextarea({
         className,
       )}
     />
+  )
+}
+
+function RewardFlashBubble({ flash }: { flash: RewardFlash }) {
+  const theme = childThemes[flash.childId]
+
+  return (
+    <div
+      className="fixed right-4 top-4 z-50 rounded-[28px] border px-5 py-4 text-white shadow-pop animate-bounce"
+      style={{ background: `linear-gradient(135deg, ${theme.accentStrong}, #123020)`, borderColor: theme.accent }}
+    >
+      <p className="text-xs font-black uppercase tracking-[0.28em] text-white/70">Nagroda</p>
+      <p className="mt-1 font-display text-3xl tracking-tight">+{formatMoney(flash.amount)}</p>
+      <p className="mt-1 text-sm text-white/75">{flash.title}</p>
+    </div>
+  )
+}
+
+function Toast({ message }: { message: string }) {
+  return (
+    <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-brand-ink px-5 py-3 text-sm font-bold text-white shadow-pop lg:bottom-6">
+      {message}
+    </div>
   )
 }
 

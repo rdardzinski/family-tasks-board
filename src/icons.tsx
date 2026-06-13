@@ -200,3 +200,20 @@ export function FilterIcon(props: SVGProps<SVGSVGElement>) {
     </Svg>
   )
 }
+
+export function ClockIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v4l3 2" />
+    </Svg>
+  )
+}
+
+export function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Svg {...props}>
+      <path d="m10 6 6 6-6 6" />
+    </Svg>
+  )
+}
