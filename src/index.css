@@ -1,0 +1,81 @@
+@import '@fontsource/nunito-sans/400.css';
+@import '@fontsource/nunito-sans/500.css';
+@import '@fontsource/nunito-sans/600.css';
+@import '@fontsource/nunito-sans/700.css';
+@import '@fontsource/nunito-sans/800.css';
+@import '@fontsource/fredoka/500.css';
+@import '@fontsource/fredoka/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --brand-page: #f3fbf7;
+    --brand-surface: #ffffff;
+    --brand-ink: #123020;
+    --brand-muted: #5b7169;
+    --brand-border: rgba(18, 48, 32, 0.08);
+    --brand-shadow: 0 20px 50px rgba(29, 76, 56, 0.12);
+  }
+
+  html {
+    background: var(--brand-page);
+    font-family: 'Nunito Sans', ui-sans-serif, system-ui, sans-serif;
+    color: var(--brand-ink);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--brand-page);
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: rgba(89, 183, 255, 0.25);
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Fredoka', 'Nunito Sans', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .shadow-soft {
+    box-shadow: var(--brand-shadow);
+  }
+
+  .animate-float-slow {
+    animation: float 13s ease-in-out infinite;
+  }
+
+  .animate-float-medium {
+    animation: float 16s ease-in-out infinite reverse;
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(0, -14px, 0) scale(1.03);
+    }
+  }
+}
